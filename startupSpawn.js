@@ -6,9 +6,9 @@ module.exports = {
       "defenderCreep" ],
   run : function(spawn) {
     var nextCreepIndex = myUtils.getOrSet(spawn.memory, "lastCreepIndex", 0) + 1;
-    var nextCreepType = this.creepTypes[nextCreepIndex % this.creepTypes.size()];
+    var nextCreepType = this.creepTypes[nextCreepIndex % this.creepTypes.size];
     var nextCreepConfig = require(nextCreepType);
-    var nextName = nextCreepType + Game.creeps.size();
+    var nextName = nextCreepType + Game.creeps.size;
     var startMemory = {
       creepType : nextCreepType
     };
