@@ -12,4 +12,4 @@ module.exports.loop = function () {
 			creep.moveTo(Game.spawns.Spawn1);
 		}
 	}
-}
+};
