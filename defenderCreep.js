@@ -4,6 +4,7 @@ module.exports = {
   creepType : "defenderCreep",
   startConfig : [ WORK, CARRY, MOVE ],
   findTarget : function(creep) {
+    console.log("defenderCreep.findTarget");
     var list = creep.room.find(FIND_HOSTILE_CREEPS);
     if (list.size == 0)
       list = creep.room.find(FIND_HOSTILE_SPAWNS);
@@ -18,7 +19,8 @@ module.exports = {
 
   },
   run : function(creep) {
-    var currentTargetId = myUtil.getOrSet(creep, "targetId", null);
+    console.log("defenderCreep.run.");
+    var currentTargetId = myUtil.getOrSet(creep.memory, "targetId", null);
     if (currentTargetId == null
         || Game.getObjectById(currentTargetId).hits <= 0)
       creep.memory.targetId = findTarget(creep);
@@ -27,7 +29,7 @@ module.exports = {
       return;
     var newTarget = Game.getObjectById(newTargetId);
     if (creep.attack(newTarget) == ERR_NOT_IN_RANGE) {
-      myUtils.creepMoveStatic(newTarget);
+      myUtils.creepMoveStatic(creep, newTarget);
     }
 
   }

@@ -4,12 +4,14 @@ module.exports = {
   creepType : "harvesterCreep",
   startConfig : [ WORK, CARRY, MOVE ],
   run : function(creep) {
+    console.log("harvesterCreep.run");
     if (creep.carry.energy < creep.carryCapacity) {
       myUtils.creepHarvest(creep);
     } else {
       var spawn = Game.getObjectById(creep.memory.spawnId);
-      if (creep.transfer(spawn, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE)
+      if (creep.transfer(spawn, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
         myUtils.creepMoveStatic(creep, spawn);
+      }
     }
   }
 };
