@@ -2,7 +2,7 @@ var myUtils = require('myUtils');
 module.exports = {
   moduleType : "creep",
   creepType : "defenderCreep",
-  startConfig : [ WORK, CARRY, MOVE ],
+  startConfig : [ ATTACK, TOUGH, MOVE, MOVE ],
   findTarget : function(creep) {
     console.log("defenderCreep.findTarget");
     var list = creep.room.find(FIND_HOSTILE_CREEPS);
@@ -20,10 +20,10 @@ module.exports = {
   },
   run : function(creep) {
     console.log("defenderCreep.run.");
-    var currentTargetId = myUtil.getOrSet(creep.memory, "targetId", null);
+    var currentTargetId = myUtils.getOrSet(creep.memory, "targetId", null);
     if (currentTargetId == null
         || Game.getObjectById(currentTargetId).hits <= 0)
-      creep.memory.targetId = findTarget(creep);
+      creep.memory.targetId = require('defenderCreep').findTarget(creep);
     var newTargetId = creep.memory.targetId;
     if (newTargetId == null || Game.getObjectById(newTargetId).hits <= 0)
       return;

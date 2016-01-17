@@ -6,10 +6,11 @@ module.exports = {
       "defenderCreep" ],
   run : function(spawn) {
     console.log("startupSpawn.run");
-    var nextCreepIndex = myUtils.getOrSet(spawn.memory, "lastCreepIndex", 0) + 1;
+    var nextCreepIndex = myUtils.getOrSet(spawn.memory, "lastCreepIndex", -1) + 1;
     var nextCreepType = this.creepTypes[nextCreepIndex % this.creepTypes.length];
     var nextCreepConfig = require(nextCreepType);
-    var nextName = nextCreepType + Game.creeps.length;
+    var numCreeps = myUtils.getOrSet(Memory, "numCreeps", 0);
+    var nextName = nextCreepType + numCreeps;
     var startMemory = {
       creepType : nextCreepType,
       spawnId: spawn.id
@@ -18,6 +19,7 @@ module.exports = {
         .canCreateCreep(nextCreepConfig.startConfig, nextName, startMemory) == OK) {
       spawn.createCreep(nextCreepConfig.startConfig, nextName, startMemory);
       spawn.memory.lastCreepIndex = nextCreepIndex;
+      Memory.numCreeps = Memory.numCreeps + 1;
     }
   }
 
