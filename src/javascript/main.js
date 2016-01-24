@@ -7,38 +7,40 @@ var ERROR_LEVEL;
 })(ERROR_LEVEL || (ERROR_LEVEL = {}));
 ;
 var globalErrLevel = ERROR_LEVEL.ERROR;
-var myDebug = function (str, level = ERROR_LEVEL.INFO) {
+var myDebug = function (str, level) {
+    if (level === void 0) { level = ERROR_LEVEL.INFO; }
     if (level > globalErrLevel)
         console.log(str);
 };
-class Queue {
-    constructor(queueData_) {
+var Queue = (function () {
+    function Queue(queueData_) {
         this.queueData = queueData_;
     }
-    push(element) {
+    Queue.prototype.push = function (element) {
         this.queueData.pushArray.push(element);
-    }
-    transfer() {
+    };
+    Queue.prototype.transfer = function () {
         if (this.queueData.popArray.length == 0) {
             this.queueData.popArray = this.queueData.pushArray;
             this.queueData.popArray.reverse();
             this.queueData.pushArray = [];
         }
-    }
-    pop() {
+    };
+    Queue.prototype.pop = function () {
         this.transfer();
         if (this.queueData.popArray.length == 0)
             return null;
         else
             return this.queueData.popArray.pop();
-    }
-    top() {
+    };
+    Queue.prototype.top = function () {
         if (this.queueData.popArray.length == 0)
             return null;
         else
             return this.queueData.popArray[this.queueData.popArray.length - 1];
-    }
-}
+    };
+    return Queue;
+})();
 module.exports.loop = function () {
     myDebug("Main");
     for (var spawnId in Game.spawns) {
