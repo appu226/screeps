@@ -55,6 +55,22 @@ class Map<TElement>{
         return new Map<TElement>({});
     }
 }
+//====================================================================
+class Set {
+    map: Map<String>;
+    constructor(mapData: any) {
+        this.map = new Map<String>(any);
+    }
+    contains(key: string): boolean {
+        return this.map.containsKey(key);
+    }
+    insert(key: string): boolean {
+        return this.map.set(key, key);
+    }
+    remove(key: string): boolean {
+        return this.map.pop(key).isDefined;
+    }
+}
 
 //====================================================================
 class Queue<TElement>{

@@ -56,6 +56,22 @@ var Map = (function () {
     return Map;
 })();
 //====================================================================
+var Set = (function () {
+    function Set(mapData) {
+        this.map = new Map(any);
+    }
+    Set.prototype.contains = function (key) {
+        return this.map.containsKey(key);
+    };
+    Set.prototype.insert = function (key) {
+        return this.map.set(key, key);
+    };
+    Set.prototype.remove = function (key) {
+        return this.map.pop(key).isDefined;
+    };
+    return Set;
+})();
+//====================================================================
 var Queue = (function () {
     function Queue(queueData_) {
         this.queueData = queueData_;
