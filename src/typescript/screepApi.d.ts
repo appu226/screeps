@@ -300,6 +300,12 @@ declare var Game: {
 declare var module: any
 
 //My own types, declared here for convenience.
+declare interface Option<TElement> {
+    isDefined: boolean;
+    get: TElement;
+}
+
+//My own types, declared here for convenience.
 declare interface QueueData<TElement> {
     popArray: Array<TElement>;
     pushArray: Array<TElement>;

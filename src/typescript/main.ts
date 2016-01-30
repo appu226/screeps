@@ -15,6 +15,48 @@ var log = {
 }
 
 //====================================================================
+class Map<TElement>{
+    mapData: any;
+    constructor(mapData_: any) {
+        this.mapData = mapData_;
+    }
+    containsKey(key: string): boolean {
+        return this.mapData.containsOwnProperty(key);
+    }
+    keys(): Array<String> {
+        var result: Array<String> = [];
+        for (var p in this.mapData) {
+            result.push(p);
+        }
+        return result;
+    }
+    get(key: string): Option<TElement> {
+        if (this.containsKey(key)) {
+            return { isDefined: true, get: <TElement>this.mapData[key] };
+        } else
+            return { isDefined: false, get: null };
+    }
+    set(key: string, value: TElement): boolean {
+        if (this.containsKey(key)) {
+            return false;
+        } else {
+            this.mapData[key] = value;
+            return true;
+        }
+    }
+    pop(key: string): Option<TElement> {
+        var ret = this.get(key);
+        if (this.containsKey(key))
+            delete this.mapData[key];
+        return ret;
+    }
+
+    static emptyMap<TElement>(): Map<TElement> {
+        return new Map<TElement>({});
+    }
+}
+
+//====================================================================
 class Queue<TElement>{
     queueData: QueueData<TElement>;
     constructor(queueData_: QueueData<TElement>) {
@@ -120,13 +162,11 @@ var CBMover: CreepBehavior = {
         }
         var creepMemory: CreepMemory = {
             spawnId: spawn.id,
-            defaultBehavior: data,
+            defaultBehavior: cbdMover,
             actionOverride: Queue.emptyQueueData<CreepActionData>()
         };
         var res = spawn.createCreep(body, null, creepMemory);
-        if (res.isString())
-            return true;
-        return false;
+        return (typeof res !== 'number');
     },
     work: function(creep: Creep): void {
         log.debug("CBMover.work");
@@ -183,6 +223,7 @@ var centralCommand = function() {
 
 //==============================================================================
 var processSpawn = function(spawn: Spawn): void {
+    log.debug("processSpawn");
     if (!spawn.memory.buildQueue) {
         spawn.memory = {
             buildQueue: Queue.emptyQueueData<CreepBehaviorData>()
@@ -193,9 +234,11 @@ var processSpawn = function(spawn: Spawn): void {
     var memory = spawn.memory;
     var buildQueue = new Queue<CreepBehaviorData>(memory.buildQueue);
     var nextBuild = buildQueue.top();
-    if (nextBuild == null && spawn.energy == spawn.energyCapacity) {
-        log.info("Spawn " + spawn.name + " registered as idle.");
-        (new Queue<String>(Memory.centralMemory.idleSpawnNames)).push(spawn.name);
+    if (nextBuild == null) {
+        if (spawn.energy == spawn.energyCapacity) {
+            log.info("Spawn " + spawn.name + " registered as idle.");
+            (new Queue<String>(Memory.centralMemory.idleSpawnNames)).push(spawn.name);
+        }
         return;
     }
     var creepBehavior = creepBehaviors.get(nextBuild.createdType);
