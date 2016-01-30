@@ -66,6 +66,21 @@ declare interface HasPosition {
 }
 
 declare interface Structure extends HasPosition {
+    id: String;
+    name: String;
+}
+
+declare interface ConstructionSite extends Structure {
+    /**
+     * The current construction progress.
+     */
+    progress: number;
+    
+    /**
+     * The total construction progress needed for the structure to be built.
+     */
+    progressTotal: number;
+
 }
 
 declare interface RoomPosition {
@@ -158,6 +173,13 @@ declare interface Creep extends HasPosition {
     memory: CreepMemory
     
     /**
+     * Build a structure at the target construction site using carried energy. 
+     * Needs WORK and CARRY body parts. 
+     * The target has to be within 3 squares range of the creep.
+     */
+    build: (target: ConstructionSite) => RESULT_CODE;
+    
+    /**
      * An object with the creep's cargo contents:
      */
     carry: {
@@ -214,6 +236,13 @@ declare interface Creep extends HasPosition {
     name: String;
     
     /**
+     * Repair a damaged structure using carried energy. 
+     * Needs the WORK and CARRY body parts. 
+     * The target has to be within 3 squares range of the creep.
+     */
+    repair: (target: any) => RESULT_CODE;
+    
+    /**
      * The remaining amount of game ticks after which the creep will die.
      */
     ticksToLive: number;
@@ -223,6 +252,19 @@ declare interface Creep extends HasPosition {
      * The target has to be at adjacent square to the creep.
      */
     transfer: (target: Structure, resourceType: RESOURCE_CODE, amount?: number) => RESULT_CODE
+
+    /**
+     * Upgrade your controller to the next level using carried energy. 
+     * Upgrading controllers raises your Global Control Level in parallel. 
+     * Needs WORK and CARRY body parts. 
+     * The target has to be at adjacent square to the creep. 
+     * A fully upgraded level 8 controller can't be upgraded 
+     * with the power over 15 energy units per tick 
+     * regardless of creeps power. 
+     * The cumulative effect of all the creeps performing upgradeController
+     * in the current tick is taken into account.
+     */
+    upgradeController: (target: Controller) => RESULT_CODE;
 
 }
 
