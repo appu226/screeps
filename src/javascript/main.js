@@ -58,7 +58,7 @@ var Map = (function () {
 //====================================================================
 var Set = (function () {
     function Set(mapData) {
-        this.map = new Map(any);
+        this.map = new Map({});
     }
     Set.prototype.contains = function (key) {
         return this.map.containsKey(key);
@@ -278,3 +278,85 @@ module.exports.loop = function () {
         processCreep(creep);
     }
 };
+//==============================================================================
+
+var assert = function (condition, message) {
+    if (!condition) {
+        throw { message: message, isMyAssertion: true };
+    }
+};
+var tests = {
+    testTesting: function () {
+    },
+    testQueue: function () {
+        var queue = Queue.emptyQueue();
+        assert(queue != null, "Empty queue should not be null.");
+        assert(queue.length() == 0, "Empty queue should have 0 length.");
+        queue.push(1);
+        assert(queue.length() == 1, "Queue length should be 1 after one push.");
+        queue.push(2);
+        assert(queue.length() == 2, "Queue length should be 2 after two pushes.");
+        queue.push(3);
+        assert(queue.length() == 3, "Queue length should be 3 after three pushes.");
+        assert(queue.top() == 1, "First Queue top should be first push.");
+        assert(queue.length() == 3, "Length should not change after top.");
+        assert(queue.pop() == 1, "First Queue pop should be first push.");
+        assert(queue.length() == 2, "Length should be 2 after first pop.");
+        assert(queue.top() == 2, "Second Queue top should be second push.");
+        assert(queue.length() == 2, "Length should not change after second top.");
+        assert(queue.pop() == 2, "Second pop should be 2.");
+        assert(queue.length() == 1, "Length after second pop should be 1.");
+        assert(queue.top() == 3, "Third element should be 3.");
+        queue.push(4);
+        assert(queue.length() == 2, "Added one more element so length should be 2.");
+        assert(queue.pop() == 3, "Third pop should be 3");
+        assert(queue.top() == 4, "Fourth top should be 4.");
+        queue.pop();
+        assert(queue.length() == 1, "Queue should be empty.");
+        assert(queue.top() == null, "Top of empty queue should return null.");
+        assert(queue.pop() == null, "Pop of empty queue should return null.");
+    }
+};
+if (process) {
+    var passed = 0;
+    var tried = 0;
+    var failed = 0;
+    var error = 0;
+    var summary = [];
+    for (var test in tests) {
+        try {
+            tried = tried + 1;
+            console.log("Starting", test, "...");
+            tests[test]();
+            summary.push("     SUCCESS:  " + test);
+            console.log(test, "passed.");
+            passed = passed + 1;
+        }
+        catch (e) {
+            var msg = "without a message.";
+            if (e.message) {
+                msg = " with message (" + e.message + ").";
+            }
+            if (e.isMyAssertion) {
+                summary.push(" *** FAILURE:  " + test);
+                failed = failed + 1;
+                console.log(test, "failed ", msg);
+            }
+            else {
+                summary.push(" XXX CRASHED: " + test);
+                error = error + 1;
+                console.log(test, "crashed", msg);
+            }
+        }
+    }
+    console.log("============================================================");
+    summary.sort();
+    for (var i = 0; i < summary.length; ++i) {
+        console.log(summary[i]);
+    }
+    var finalStatus = "PASS";
+    if (error + failed > 0)
+        finalStatus = "FAIL";
+    console.log("============================================================");
+    console.log('\n', finalStatus, "(tried: " + tried + ", passed: " + passed + ", failed: " + failed + ", errors: " + error + ")");
+}
