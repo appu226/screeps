@@ -19,12 +19,13 @@ var Map = (function () {
         this.mapData = mapData_;
     }
     Map.prototype.containsKey = function (key) {
-        return this.mapData.containsOwnProperty(key);
+        return (this.mapData[key] !== undefined);
     };
     Map.prototype.keys = function () {
         var result = [];
         for (var p in this.mapData) {
-            result.push(p);
+            if (this.mapData[p] !== undefined)
+                result.push(p);
         }
         return result;
     };
@@ -46,8 +47,8 @@ var Map = (function () {
     };
     Map.prototype.pop = function (key) {
         var ret = this.get(key);
-        if (this.containsKey(key))
-            delete this.mapData[key];
+        if (ret.isDefined)
+            this.mapData[key] = undefined;
         return ret;
     };
     Map.emptyMap = function () {
@@ -316,6 +317,71 @@ var tests = {
         assert(queue.length() == 0, "Queue should be empty.");
         assert(queue.top() == null, "Top of empty queue should return null.");
         assert(queue.pop() == null, "Pop of empty queue should return null.");
+    },
+    testMap: function () {
+        var map = Map.emptyMap();
+        assert(map.keys().length == 0, "Length of empty map should be 0.");
+        assert(map.get("one").isDefined == false, "Empty map should return empty option.");
+        map.set("one", 1);
+        var keys = map.keys();
+        assert(keys.length == 1, "Length of map should be 1 after first insert.");
+        assert(keys[0] == "one", "Keys should have only the inserted key.");
+        var get = map.get("one");
+        assert(get.isDefined, "Lookup of inserted key should not be empty.");
+        assert(get.get == 1, "Lookup of inserted key should give inserted value.");
+        assert(map.get("two").isDefined == false, "Lookup of key not yet inserted should give empty option.");
+        map.set("two", 2);
+        keys = map.keys();
+        var expectedKeys = ["one", "two"];
+        keys.sort();
+        expectedKeys.sort();
+        assert(keys.length == expectedKeys.length && keys.length == 2, "Length of map after two insertions should be 2.");
+        for (var i = 0; i < keys.length; ++i) {
+            assert(keys[i] == expectedKeys[i], "keys[" + i + "] should match expectedKeys[" + i + "].");
+        }
+        get = map.get("one");
+        assert(get.isDefined, "Lookup of one should not be empty.");
+        assert(get.get == 1, "Lookup of one should give 1.");
+        get = map.get("two");
+        assert(get.isDefined, "Lookup of two should not be empty.");
+        assert(get.get == 2, "Lookup of two should give inserted value.");
+        assert(map.get("three").isDefined == false, "Lookup of three should not be defined.");
+        map = new Map(map.mapData);
+        map.set("three", 3);
+        keys = map.keys();
+        var expectedKeys = ["one", "two", "three"];
+        keys.sort();
+        expectedKeys.sort();
+        assert(keys.length == expectedKeys.length && keys.length == 3, "Length of map after three insertions should be 3.");
+        for (var i = 0; i < keys.length; ++i) {
+            assert(keys[i] == expectedKeys[i], "keys[" + i + "] should match expectedKeys[" + i + "].");
+        }
+        get = map.get("one");
+        assert(get.isDefined, "Lookup of one should not be empty.");
+        assert(get.get == 1, "Lookup of one should give 1.");
+        get = map.get("two");
+        assert(get.isDefined, "Lookup of two should not be empty.");
+        assert(get.get == 2, "Lookup of two should give inserted value.");
+        get = map.get("three");
+        assert(get.isDefined, "Lookup of two should not be empty.");
+        assert(get.get == 3, "Lookup of two should give inserted value.");
+        assert(map.get("four").isDefined == false, "Lookup of three should not be defined.");
+        map.pop("two");
+        keys = map.keys();
+        expectedKeys = ["one", "three"];
+        keys.sort();
+        expectedKeys.sort();
+        assert(keys.length == expectedKeys.length && keys.length == 2, "Length of map after two insertions should be 2.");
+        for (var i = 0; i < keys.length; ++i) {
+            assert(keys[i] == expectedKeys[i], "keys[" + i + "] should match expectedKeys[" + i + "].");
+        }
+        get = map.get("one");
+        assert(get.isDefined, "Lookup of one should not be empty.");
+        assert(get.get == 1, "Lookup of one should give 1.");
+        get = map.get("three");
+        assert(get.isDefined, "Lookup of three should not be empty.");
+        assert(get.get == 3, "Lookup of three should give inserted value.");
+        assert(map.get("two").isDefined == false, "Lookup of two should not be defined.");
     }
 };
 if (process) {

@@ -21,12 +21,13 @@ class Map<TElement>{
         this.mapData = mapData_;
     }
     containsKey(key: string): boolean {
-        return this.mapData.containsOwnProperty(key);
+        return (this.mapData[key] !== undefined);
     }
     keys(): Array<String> {
         var result: Array<String> = [];
         for (var p in this.mapData) {
-            result.push(p);
+            if (this.mapData[p] !== undefined)
+                result.push(p);
         }
         return result;
     }
@@ -46,8 +47,8 @@ class Map<TElement>{
     }
     pop(key: string): Option<TElement> {
         var ret = this.get(key);
-        if (this.containsKey(key))
-            delete this.mapData[key];
+        if (ret.isDefined)
+            this.mapData[key] = undefined;
         return ret;
     }
 
@@ -59,7 +60,7 @@ class Map<TElement>{
 class Set {
     map: Map<String>;
     constructor(mapData: any) {
-        this.map = new Map<String>({});
+        this.map = new Map<String>(mapData);
     }
     contains(key: string): boolean {
         return this.map.containsKey(key);
@@ -317,31 +318,100 @@ var tests = {
         queue.push(2);
         assert(queue.length() == 2, "Queue length should be 2 after two pushes.")
         queue.push(3);
-        
+
         var queueData = queue.queueData;
         queue = new Queue(queueData);
-        
+
         assert(queue.length() == 3, "Queue length should be 3 after three pushes.")
         assert(queue.top() == 1, "First Queue top should be first push.");
         assert(queue.length() == 3, "Length should not change after top.");
-        
-        assert(queue.pop() == 1, "First Queue pop should be first push.");       
+
+        assert(queue.pop() == 1, "First Queue pop should be first push.");
         assert(queue.length() == 2, "Length should be 2 after first pop.");
         assert(queue.top() == 2, "Second Queue top should be second push.")
         assert(queue.length() == 2, "Length should not change after second top.");
-        
+
         assert(queue.pop() == 2, "Second pop should be 2.");
         assert(queue.length() == 1, "Length after second pop should be 1.");
         assert(queue.top() == 3, "Third element should be 3.");
         queue.push(4);
         assert(queue.length() == 2, "Added one more element so length should be 2.");
-        
+
         assert(queue.pop() == 3, "Third pop should be 3");
         assert(queue.top() == 4, "Fourth top should be 4.");
         queue.pop();
         assert(queue.length() == 0, "Queue should be empty.");
         assert(queue.top() == null, "Top of empty queue should return null.");
         assert(queue.pop() == null, "Pop of empty queue should return null.");
+    },
+    testMap: function(): void {
+        var map = Map.emptyMap<number>();
+        assert(map.keys().length == 0, "Length of empty map should be 0.");
+        assert(map.get("one").isDefined == false, "Empty map should return empty option.");
+        map.set("one", 1);
+        var keys = map.keys();
+        assert(keys.length == 1, "Length of map should be 1 after first insert.");
+        assert(keys[0] == "one", "Keys should have only the inserted key.");
+        var get = map.get("one");
+        assert(get.isDefined, "Lookup of inserted key should not be empty.");
+        assert(get.get == 1, "Lookup of inserted key should give inserted value.");
+        assert(map.get("two").isDefined == false, "Lookup of key not yet inserted should give empty option.");
+
+        map.set("two", 2);
+        keys = map.keys();
+        var expectedKeys = ["one", "two"];
+        keys.sort();
+        expectedKeys.sort();
+        assert(keys.length == expectedKeys.length && keys.length == 2, "Length of map after two insertions should be 2.");
+        for (var i = 0; i < keys.length; ++i) {
+            assert(keys[i] == expectedKeys[i], "keys[" + i + "] should match expectedKeys[" + i + "].");
+        }
+        get = map.get("one");
+        assert(get.isDefined, "Lookup of one should not be empty.");
+        assert(get.get == 1, "Lookup of one should give 1.");
+        get = map.get("two");
+        assert(get.isDefined, "Lookup of two should not be empty.");
+        assert(get.get == 2, "Lookup of two should give inserted value.");
+        assert(map.get("three").isDefined == false, "Lookup of three should not be defined.");
+
+        map = new Map<number>(map.mapData);
+
+        map.set("three", 3);
+        keys = map.keys();
+        var expectedKeys = ["one", "two", "three"];
+        keys.sort();
+        expectedKeys.sort();
+        assert(keys.length == expectedKeys.length && keys.length == 3, "Length of map after three insertions should be 3.");
+        for (var i = 0; i < keys.length; ++i) {
+            assert(keys[i] == expectedKeys[i], "keys[" + i + "] should match expectedKeys[" + i + "].");
+        }
+        get = map.get("one");
+        assert(get.isDefined, "Lookup of one should not be empty.");
+        assert(get.get == 1, "Lookup of one should give 1.");
+        get = map.get("two");
+        assert(get.isDefined, "Lookup of two should not be empty.");
+        assert(get.get == 2, "Lookup of two should give inserted value.");
+        get = map.get("three");
+        assert(get.isDefined, "Lookup of two should not be empty.");
+        assert(get.get == 3, "Lookup of two should give inserted value.");
+        assert(map.get("four").isDefined == false, "Lookup of three should not be defined.");
+
+        map.pop("two");
+        keys = map.keys();
+        expectedKeys = ["one", "three"];
+        keys.sort();
+        expectedKeys.sort();
+        assert(keys.length == expectedKeys.length && keys.length == 2, "Length of map after two insertions should be 2.");
+        for (var i = 0; i < keys.length; ++i) {
+            assert(keys[i] == expectedKeys[i], "keys[" + i + "] should match expectedKeys[" + i + "].");
+        }
+        get = map.get("one");
+        assert(get.isDefined, "Lookup of one should not be empty.");
+        assert(get.get == 1, "Lookup of one should give 1.");
+        get = map.get("three");
+        assert(get.isDefined, "Lookup of three should not be empty.");
+        assert(get.get == 3, "Lookup of three should give inserted value.");
+        assert(map.get("two").isDefined == false, "Lookup of two should not be defined.");
     }
 }
 
