@@ -21,6 +21,10 @@
             "isTestCommand": true,
             "showOutput": "always",
             "problemMatcher": "$tsc"
+        },
+        {
+            "taskName": "publish",
+            "showOutput": "silent"
         }
     ]
 }

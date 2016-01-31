@@ -5,3 +5,6 @@ javascript/main.js:	typescript/*.ts
 
 test:	build
 	node javascript/main.js
+    
+publish:    build test
+    node publish.js
