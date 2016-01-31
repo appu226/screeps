@@ -1,6 +1,6 @@
 //Stuff from the Game
 
-declare interface BODY_TYPE { }
+interface BODY_TYPE { }
 declare var WORK: BODY_TYPE;
 declare var MOVE: BODY_TYPE;
 declare var CARRY: BODY_TYPE;
@@ -9,7 +9,7 @@ declare var RANGED_ATTACK: BODY_TYPE;
 declare var HEAL: BODY_TYPE;
 declare var TOUGH: BODY_TYPE;
 
-declare interface RESULT_CODE { }
+interface RESULT_CODE { }
 declare var OK: RESULT_CODE;
 declare var ERR_NOT_OWNER;
 declare var ERR_NO_PATH;
@@ -28,12 +28,12 @@ declare var ERR_RCL_NOT_ENOUGH;
 declare var ERR_GCL_NOT_ENOUGH;
 
 
-declare interface RESOURCE_CODE { }
+interface RESOURCE_CODE { }
 declare var RESOURCE_ENERGY: RESOURCE_CODE;
 declare var RESOURCE_POWER: RESOURCE_CODE;
 declare var RESOURCES_ALL: Array<RESOURCE_CODE>;
 
-declare interface FIND_CONSTANT { }
+interface FIND_CONSTANT { }
 
 declare var FIND_CREEPS: FIND_CONSTANT;
 declare var FIND_MY_CREEPS: FIND_CONSTANT;
@@ -60,17 +60,17 @@ declare var FIND_EXIT: FIND_CONSTANT;
 
 
 
-declare interface HasPosition {
+interface HasPosition {
     pos: RoomPosition;
     room: Room;
 }
 
-declare interface Structure extends HasPosition {
+interface Structure extends HasPosition {
     id: String;
     name: String;
 }
 
-declare interface ConstructionSite extends Structure {
+interface ConstructionSite extends Structure {
     /**
      * The current construction progress.
      */
@@ -83,7 +83,7 @@ declare interface ConstructionSite extends Structure {
 
 }
 
-declare interface RoomPosition {
+interface RoomPosition {
     roomName: String
     x: number
     y: number
@@ -94,21 +94,21 @@ declare interface RoomPosition {
     findClosestByRange: (type: FIND_CONSTANT, opts?: any) => any;
 }
 
-declare interface Controller extends Structure {
+interface Controller extends Structure {
     /**
      * Current controller level, from 0 to 8.
      */
     level: number;
 }
 
-declare interface Room {
+interface Room {
     /**
      * The Controller structure of this room, if present, otherwise undefined.
      */
     controller: Controller;
 }
 
-declare interface Spawn extends HasPosition {
+interface Spawn extends HasPosition {
     /**
      * Start the creep spawning process.
      * @param {Array<BODY_TYPE>} body - An array describing the new creep’s body. Should contain 1 to 50 elements.
@@ -153,7 +153,7 @@ declare interface Spawn extends HasPosition {
 
 }
 
-declare interface Creep extends HasPosition {
+interface Creep extends HasPosition {
     /**
      * Display a visual speech balloon above the creep 
      * with the specified message. 
@@ -269,11 +269,11 @@ declare interface Creep extends HasPosition {
 }
 
 
-declare interface Source extends Structure {
+interface Source extends Structure {
 
 }
 
-declare interface CentralMemory {
+interface CentralMemory {
     idleSpawnNames: QueueData<String>;
     ageingCreeps: QueueData<String>;
 }
@@ -300,27 +300,27 @@ declare var Game: {
 declare var module: any
 
 //My own types, declared here for convenience.
-declare interface Option<TElement> {
+interface Option<TElement> {
     isDefined: boolean;
     get: TElement;
 }
 
 //My own types, declared here for convenience.
-declare interface QueueData<TElement> {
+interface QueueData<TElement> {
     popArray: Array<TElement>;
     pushArray: Array<TElement>;
 }
-declare interface ConstructorData {
+interface ConstructorData {
     createdType: String;
 }
-declare interface CreepBehaviorData extends ConstructorData { }
-declare interface CreepActionData extends ConstructorData { }
+interface CreepBehaviorData extends ConstructorData { }
+interface CreepActionData extends ConstructorData { }
 
-declare interface SpawnMemory {
+interface SpawnMemory {
     buildQueue: QueueData<CreepBehaviorData>;
 }
 
-declare interface CreepMemory {
+interface CreepMemory {
     spawnId: String;
     defaultBehavior: CreepBehaviorData;
     actionOverride: QueueData<CreepActionData>;

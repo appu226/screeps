@@ -7,4 +7,7 @@ test:	build
 	node javascript/main.js
     
 publish:    build test
-    node publish.js
+	node publish.js
+
+clean:
+	rm -f javascript/*.js

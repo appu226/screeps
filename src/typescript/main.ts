@@ -123,7 +123,7 @@ class Queue<TElement>{
         return { popArray: popArray_, pushArray: pushArray_ };
     }
     static emptyQueue<TElement>(): Queue<TElement> {
-        return new Queue(Queue.emptyQueueData<TElement>());
+        return new Queue<TElement>(Queue.emptyQueueData<TElement>());
     }
 }
 
@@ -320,7 +320,7 @@ var tests = {
     testTesting: function(): void {
     },
     testQueue: function(): void {
-        var queue = Queue.emptyQueue<number>();
+        var queue: Queue<number> = Queue.emptyQueue<number>();
         assert(queue != null, "Empty queue should not be null.");
         assert(queue.length() == 0, "Empty queue should have 0 length.");
         queue.push(1);
@@ -330,7 +330,7 @@ var tests = {
         queue.push(3);
 
         var queueData = queue.queueData;
-        queue = new Queue(queueData);
+        queue = new Queue<number>(queueData);
 
         assert(queue.length() == 3, "Queue length should be 3 after three pushes.")
         assert(queue.top() == 1, "First Queue top should be first push.");
@@ -438,7 +438,7 @@ var tests = {
         for (var i = 0; i < keys.length; ++i) {
             assert(keys[i] == expectedKeys[i], "Keys should have expected keys.");
         }
-        
+
         set = new Set(set.map);
         set.insert("two");
         keys = set.keys();
@@ -448,7 +448,7 @@ var tests = {
         for (var i = 0; i < keys.length; ++i) {
             assert(keys[i] == expectedKeys[i], "Keys should have expected keys.");
         }
-        
+
         set.remove("one");
         set.insert("two");
         keys = set.keys();
@@ -460,7 +460,7 @@ var tests = {
         }
         assert(set.contains("one") == false, "Set should not have removed key.");
         assert(set.contains("two") == true, "Set should have inserted key.");
-        
+
         set.insert("one");
         set.insert("three");
         keys = set.keys();
