@@ -19,6 +19,11 @@ var log = {
 }
 
 //====================================================================
+var unimplemented = function(msg: String = ""): any {
+    throw "Missing implementation exception: " + msg;
+}
+
+//====================================================================
 class Map<TElement>{
     mapData: any;
     constructor(mapData_: any) {
@@ -128,7 +133,7 @@ class Queue<TElement>{
 }
 
 //==============================================================================
-interface CreepBehavior {
+interface CreepBehaviorOps {
     create(spawn: Spawn, data: CreepBehaviorData): boolean;
     work(creep: Creep): void;
 }
@@ -162,7 +167,6 @@ var commonCreepWork = function(creep: Creep) {
         (new Queue<String>(Memory.centralMemory.ageingCreeps)).push(creep.id);
 };
 
-
 //==============================================================================
 class CBDMover implements CreepBehaviorData {
     fromId: String;
@@ -175,7 +179,7 @@ class CBDMover implements CreepBehaviorData {
         this.createdType = "mover";
     }
 };
-var CBMover: CreepBehavior = {
+var CBOMover: CreepBehaviorOps = {
     create: function(spawn: Spawn, data: CreepBehaviorData): boolean {
         log.debug("CBMover.create");
         var cbdMover = <CBDMover>data;
@@ -212,20 +216,45 @@ var CBMover: CreepBehavior = {
 };
 
 //==============================================================================
-var creepBehaviors = {
-    mover: CBMover,
-    get: function(name: String): CreepBehavior {
-        return <CreepBehavior>this[<any>name];
-    },
-    work: function(creep: Creep, behaviorData: CreepBehaviorData): void {
-        this.get(behaviorData.createdType).work(creep);
+class CreepBehavior {
+    data: CreepBehaviorData;
+    ops: CreepBehaviorOps;
+    creep: Creep;
+    constructor(creep_: Creep, data_: CreepBehaviorData) {
+        this.data = data_;
+        this.ops = CreepBehavior.getOps(data_);
+        this.creep = creep_;
     }
-}
+    work(): void {
+        this.ops.work(this.creep);
+    }
+    static getOps(data: CreepBehaviorData): CreepBehaviorOps {
+        return CreepBehavior[data.createdType.toString()];
+    }
+    static createCreep(data: CreepBehaviorData, spawn: Spawn): boolean {
+        return CreepBehavior.getOps(data).create(spawn, data);
+    }
+    static mover: CreepBehaviorOps = CBOMover;
+};
+
 //==============================================================================
 var getSpawnFromName = function(name: String): Spawn {
     return <Spawn>Game.spawns[<any>name];
 }
 
+//==============================================================================
+var createBodyTypeCosts = function(): StringToNumber {
+    var BODY_TYPE_COSTS = <StringToNumber>{};
+    BODY_TYPE_COSTS[MOVE.toString()] = 50;
+    BODY_TYPE_COSTS[WORK.toString()] = 100;
+    BODY_TYPE_COSTS[CARRY.toString()] = 50;
+    BODY_TYPE_COSTS[ATTACK.toString()] = 80;
+    BODY_TYPE_COSTS[RANGED_ATTACK.toString()] = 150;
+    BODY_TYPE_COSTS[HEAL.toString()] = 250;
+    BODY_TYPE_COSTS[TOUGH.toString()] = 10;
+    return BODY_TYPE_COSTS;
+}
+	
 //==============================================================================
 var centralCommand = function() {
     log.debug("centralCommand");
@@ -235,6 +264,7 @@ var centralCommand = function() {
             ageingCreeps: Queue.emptyQueueData<String>()
         };
         log.info("Initialized Memory.centralMemory.");
+        Memory.bodyTypeCosts = createBodyTypeCosts();
     }
     var memory = Memory.centralMemory;
     var idleSpawnQueue = new Queue<String>(memory.idleSpawnNames);
@@ -268,8 +298,7 @@ var processSpawn = function(spawn: Spawn): void {
         }
         return;
     }
-    var creepBehavior = creepBehaviors.get(nextBuild.createdType);
-    if (creepBehavior.create(spawn, nextBuild)) {
+    if (CreepBehavior.createCreep(nextBuild, spawn)) {
         log.info("Created creep in spawn " + spawn.name);
         buildQueue.pop();
     } else {
@@ -289,7 +318,7 @@ var processCreep = function(creep: Creep): void {
         creepActions.work(creep, actionOverride);
         return;
     } else {
-        creepBehaviors.work(creep, creep.memory.defaultBehavior);
+        (new CreepBehavior(creep, creep.memory.defaultBehavior)).work();
     }
 }
 

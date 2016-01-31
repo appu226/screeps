@@ -16,6 +16,11 @@ var log = {
     error: function (msg) { this.print(msg, this.ERROR); }
 };
 //====================================================================
+var unimplemented = function (msg) {
+    if (msg === void 0) { msg = ""; }
+    throw "Missing implementation exception: " + msg;
+};
+//====================================================================
 var Map = (function () {
     function Map(mapData_) {
         this.mapData = mapData_;
@@ -154,7 +159,7 @@ var CBDMover = (function () {
     return CBDMover;
 })();
 ;
-var CBMover = {
+var CBOMover = {
     create: function (spawn, data) {
         log.debug("CBMover.create");
         var cbdMover = data;
@@ -194,18 +199,40 @@ var CBMover = {
     }
 };
 //==============================================================================
-var creepBehaviors = {
-    mover: CBMover,
-    get: function (name) {
-        return this[name];
-    },
-    work: function (creep, behaviorData) {
-        this.get(behaviorData.createdType).work(creep);
+var CreepBehavior = (function () {
+    function CreepBehavior(creep_, data_) {
+        this.data = data_;
+        this.ops = CreepBehavior.getOps(data_);
+        this.creep = creep_;
     }
-};
+    CreepBehavior.prototype.work = function () {
+        this.ops.work(this.creep);
+    };
+    CreepBehavior.getOps = function (data) {
+        return CreepBehavior[data.createdType.toString()];
+    };
+    CreepBehavior.createCreep = function (data, spawn) {
+        return CreepBehavior.getOps(data).create(spawn, data);
+    };
+    CreepBehavior.mover = CBOMover;
+    return CreepBehavior;
+})();
+;
 //==============================================================================
 var getSpawnFromName = function (name) {
     return Game.spawns[name];
+};
+//==============================================================================
+var createBodyTypeCosts = function () {
+    var BODY_TYPE_COSTS = {};
+    BODY_TYPE_COSTS[MOVE.toString()] = 50;
+    BODY_TYPE_COSTS[WORK.toString()] = 100;
+    BODY_TYPE_COSTS[CARRY.toString()] = 50;
+    BODY_TYPE_COSTS[ATTACK.toString()] = 80;
+    BODY_TYPE_COSTS[RANGED_ATTACK.toString()] = 150;
+    BODY_TYPE_COSTS[HEAL.toString()] = 250;
+    BODY_TYPE_COSTS[TOUGH.toString()] = 10;
+    return BODY_TYPE_COSTS;
 };
 //==============================================================================
 var centralCommand = function () {
@@ -216,6 +243,7 @@ var centralCommand = function () {
             ageingCreeps: Queue.emptyQueueData()
         };
         log.info("Initialized Memory.centralMemory.");
+        Memory.bodyTypeCosts = createBodyTypeCosts();
     }
     var memory = Memory.centralMemory;
     var idleSpawnQueue = new Queue(memory.idleSpawnNames);
@@ -249,8 +277,7 @@ var processSpawn = function (spawn) {
         }
         return;
     }
-    var creepBehavior = creepBehaviors.get(nextBuild.createdType);
-    if (creepBehavior.create(spawn, nextBuild)) {
+    if (CreepBehavior.createCreep(nextBuild, spawn)) {
         log.info("Created creep in spawn " + spawn.name);
         buildQueue.pop();
     }
@@ -271,7 +298,7 @@ var processCreep = function (creep) {
         return;
     }
     else {
-        creepBehaviors.work(creep, creep.memory.defaultBehavior);
+        (new CreepBehavior(creep, creep.memory.defaultBehavior)).work();
     }
 };
 //==============================================================================

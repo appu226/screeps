@@ -278,10 +278,15 @@ interface CentralMemory {
     ageingCreeps: QueueData<String>;
 }
 
+interface StringToNumber {
+    [key: string]: number;
+}
+
 declare var Memory: {
     creeps: any;
     spawns: any;
     centralMemory: CentralMemory;
+    bodyTypeCosts: StringToNumber;
 }
 
 declare var Game: {
