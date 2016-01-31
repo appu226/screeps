@@ -4,7 +4,11 @@ var log = {
     INFO: 3,
     WARN: 4,
     ERROR: 5,
-    CURRENT: 2,
+    
+    //vvvvvvvvv
+    CURRENT: 4,
+    //^^^^^^^^^
+    
     print: function(msg: String, level: number) {
         if (level >= this.CURRENT) console.log(msg);
     },
@@ -59,8 +63,8 @@ class Map<TElement>{
 //====================================================================
 class Set {
     map: Map<String>;
-    constructor(mapData: any) {
-        this.map = new Map<String>(mapData);
+    constructor(map_: Map<String>) {
+        this.map = map_;
     }
     contains(key: string): boolean {
         return this.map.containsKey(key);
@@ -70,6 +74,12 @@ class Set {
     }
     remove(key: string): boolean {
         return this.map.pop(key).isDefined;
+    }
+    keys(): Array<String> {
+        return this.map.keys();
+    }
+    static emptySet(): Set {
+        return new Set(Map.emptyMap<String>());
     }
 }
 
@@ -412,6 +422,58 @@ var tests = {
         assert(get.isDefined, "Lookup of three should not be empty.");
         assert(get.get == 3, "Lookup of three should give inserted value.");
         assert(map.get("two").isDefined == false, "Lookup of two should not be defined.");
+    },
+
+    testSet: function(): void {
+        var set = Set.emptySet();
+        var keys = set.keys();
+        var expectedKeys: Array<String> = [];
+        assert(keys.length == 0, "Length of empty set should be zero.");
+        assert(set.contains("one") == false, "Empty set should not contain one");
+        set.insert("one");
+        keys = set.keys();
+        assert(set.contains("one"), "Set with one should contain one.");
+        expectedKeys = ["one"];
+        assert(keys.length == 1 && keys.length == expectedKeys.length, "Set keys should have expected length.");
+        for (var i = 0; i < keys.length; ++i) {
+            assert(keys[i] == expectedKeys[i], "Keys should have expected keys.");
+        }
+        
+        set = new Set(set.map);
+        set.insert("two");
+        keys = set.keys();
+        expectedKeys = ["one", "two"];
+        keys.sort(); expectedKeys.sort();
+        assert(keys.length == 2 && keys.length == expectedKeys.length, "Set keys should have expected length.");
+        for (var i = 0; i < keys.length; ++i) {
+            assert(keys[i] == expectedKeys[i], "Keys should have expected keys.");
+        }
+        
+        set.remove("one");
+        set.insert("two");
+        keys = set.keys();
+        expectedKeys = ["two"];
+        keys.sort(); expectedKeys.sort();
+        assert(keys.length == 1 && keys.length == expectedKeys.length, "Set keys should have expected length.");
+        for (var i = 0; i < keys.length; ++i) {
+            assert(keys[i] == expectedKeys[i], "Keys should have expected keys.");
+        }
+        assert(set.contains("one") == false, "Set should not have removed key.");
+        assert(set.contains("two") == true, "Set should have inserted key.");
+        
+        set.insert("one");
+        set.insert("three");
+        keys = set.keys();
+        expectedKeys = ["one", "two", "three"];
+        keys.sort(); expectedKeys.sort();
+        assert(keys.length == 3 && keys.length == expectedKeys.length, "Set keys should have expected length.");
+        for (var i = 0; i < keys.length; ++i) {
+            assert(keys[i] == expectedKeys[i], "Keys should have expected keys.");
+        }
+        assert(set.contains("one") == true, "Set should have re-inserted key.");
+        assert(set.contains("two") == true, "Set should have inserted key.");
+        assert(set.contains("three") == true, "Set should have inserted key.");
+        assert(set.contains("four") == false, "Set should not have un-inserted key.");
     }
 }
 
@@ -424,24 +486,24 @@ if (process) {
     for (var test in tests) {
         try {
             tried = tried + 1;
-            console.log("Starting", test, "...");
+            log.info("Starting " + test + "...");
             tests[test]();
             summary.push("     SUCCESS:  " + test);
-            console.log(test, "passed.");
+            log.info(test + " passed.");
             passed = passed + 1;
         } catch (e) {
             var msg = "without a message.";
             if (e.message) {
-                msg = " with message (" + e.message + ").";
+                msg = "with message (" + e.message + ").";
             }
             if (e.isMyAssertion) {
                 summary.push(" *** FAILURE:  " + test);
                 failed = failed + 1;
-                console.log(test, "failed ", msg);
+                log.warn(test + " failed " + msg);
             } else {
                 summary.push(" XXX CRASHED: " + test);
                 error = error + 1;
-                console.log(test, "crashed", msg);
+                log.error(test + " crashed " + msg);
             }
         }
     }
