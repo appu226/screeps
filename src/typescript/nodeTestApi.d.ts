@@ -1,3 +1,4 @@
 declare var process: {
-    argv: Array<String>
+    argv: Array<String>;
+    exit: (retVal: number) => void;
 };

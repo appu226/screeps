@@ -279,7 +279,6 @@ module.exports.loop = function () {
     }
 };
 //==============================================================================
-
 var assert = function (condition, message) {
     if (!condition) {
         throw { message: message, isMyAssertion: true };
@@ -297,6 +296,8 @@ var tests = {
         queue.push(2);
         assert(queue.length() == 2, "Queue length should be 2 after two pushes.");
         queue.push(3);
+        var queueData = queue.queueData;
+        queue = new Queue(queueData);
         assert(queue.length() == 3, "Queue length should be 3 after three pushes.");
         assert(queue.top() == 1, "First Queue top should be first push.");
         assert(queue.length() == 3, "Length should not change after top.");
@@ -312,7 +313,7 @@ var tests = {
         assert(queue.pop() == 3, "Third pop should be 3");
         assert(queue.top() == 4, "Fourth top should be 4.");
         queue.pop();
-        assert(queue.length() == 1, "Queue should be empty.");
+        assert(queue.length() == 0, "Queue should be empty.");
         assert(queue.top() == null, "Top of empty queue should return null.");
         assert(queue.pop() == null, "Pop of empty queue should return null.");
     }
@@ -359,4 +360,5 @@ if (process) {
         finalStatus = "FAIL";
     console.log("============================================================");
     console.log('\n', finalStatus, "(tried: " + tried + ", passed: " + passed + ", failed: " + failed + ", errors: " + error + ")");
+    process.exit(error + failed);
 }
