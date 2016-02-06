@@ -1,3 +1,4 @@
 src/ignored/*
 .settings
 .externalToolBuilders
+src/.vimrc

@@ -33,6 +33,22 @@ declare var RESOURCE_ENERGY: RESOURCE_CODE;
 declare var RESOURCE_POWER: RESOURCE_CODE;
 declare var RESOURCES_ALL: Array<RESOURCE_CODE>;
 
+interface STRUCTURE_TYPE { }
+declare var STRUCTURE_EXTENSION: STRUCTURE_TYPE; // extension"
+declare var STRUCTURE_RAMPART: STRUCTURE_TYPE; // rampart"
+declare var STRUCTURE_ROAD: STRUCTURE_TYPE; // road"
+declare var STRUCTURE_SPAWN: STRUCTURE_TYPE; // spawn"
+declare var STRUCTURE_LINK: STRUCTURE_TYPE; // link"
+declare var STRUCTURE_WALL: STRUCTURE_TYPE; // constructedWall"
+declare var STRUCTURE_KEEPER_LAIR: STRUCTURE_TYPE; // keeperLair"
+declare var STRUCTURE_CONTROLLER: STRUCTURE_TYPE; // controller"
+declare var STRUCTURE_STORAGE: STRUCTURE_TYPE; // storage"
+declare var STRUCTURE_TOWER: STRUCTURE_TYPE; // tower"
+declare var STRUCTURE_OBSERVER: STRUCTURE_TYPE; // observer"
+declare var STRUCTURE_POWER_BANK: STRUCTURE_TYPE; // powerBank"
+declare var STRUCTURE_POWER_SPAWN: STRUCTURE_TYPE; // powerSpawn"
+
+
 interface FIND_CONSTANT { }
 
 declare var FIND_CREEPS: FIND_CONSTANT;
@@ -60,17 +76,22 @@ declare var FIND_EXIT: FIND_CONSTANT;
 
 
 
-interface HasPosition {
+declare class HasPosition {
     pos: RoomPosition;
     room: Room;
 }
 
-interface Structure extends HasPosition {
+declare class Structure extends HasPosition implements CreepOrStructure {
     id: String;
     name: String;
+    structureType: STRUCTURE_TYPE;
+    hits: number;
+    hitsMax: number;
 }
 
-interface ConstructionSite extends Structure {
+declare class ConstructionSite extends HasPosition {
+    id: String;
+    name: String;
     /**
      * The current construction progress.
      */
@@ -80,18 +101,40 @@ interface ConstructionSite extends Structure {
      * The total construction progress needed for the structure to be built.
      */
     progressTotal: number;
+    
+    /**
+     * One of the STRUCTURE_* constants.
+     */
+    structureType: STRUCTURE_TYPE;
 
 }
 
-interface RoomPosition {
-    roomName: String
-    x: number
-    y: number
+declare class RoomPosition {
+    roomName: String;
+    x: number;
+    y: number;
     
     /**
      * Find an object with the shortest linear distance from the given position.
      */
     findClosestByRange: (type: FIND_CONSTANT, opts?: any) => any;
+
+    /**
+     * Get an object with the given type at the specified room position.
+     * 
+     * Arguments: One of the following string constants:
+     * constructionSite
+     * creep
+     * exit
+     * flag
+     * resource
+     * source
+     * structure
+     * terrain
+     *
+     * Returns: An array of objects of the given type at the specified position if found.
+     */
+    lookFor: (objectType: String) => Array<any>;
 }
 
 interface Controller extends Structure {
@@ -108,7 +151,7 @@ interface Room {
     controller: Controller;
 }
 
-interface Spawn extends HasPosition {
+declare class Spawn extends HasPosition {
     /**
      * Start the creep spawning process.
      * @param {Array<BODY_TYPE>} body - An array describing the new creep’s body. Should contain 1 to 50 elements.
@@ -153,7 +196,9 @@ interface Spawn extends HasPosition {
 
 }
 
-interface Creep extends HasPosition {
+interface CreepOrStructure { }
+
+declare class Creep extends HasPosition implements CreepOrStructure {
     /**
      * Display a visual speech balloon above the creep 
      * with the specified message. 
@@ -161,7 +206,7 @@ interface Creep extends HasPosition {
      * Useful for debugging purposes. 
      * Only the creep's owner can see the speech message.
      */
-    say: (msg: String) => void
+    say: (msg: String) => void;
     
     /**
      * A shorthand to Memory.creeps[creep.name]. 
@@ -170,7 +215,7 @@ interface Creep extends HasPosition {
      * which has been just scheduled to spawn, 
      * but you still can write its memory like that.
      */
-    memory: CreepMemory
+    memory: CreepMemory;
     
     /**
      * Build a structure at the target construction site using carried energy. 
@@ -236,6 +281,12 @@ interface Creep extends HasPosition {
     name: String;
     
     /**
+     * An object with the creep’s owner info containing the following properties:
+     * username: String: The name of the owner user.
+     */
+    owner: { username: String }
+    
+    /**
      * Repair a damaged structure using carried energy. 
      * Needs the WORK and CARRY body parts. 
      * The target has to be within 3 squares range of the creep.
@@ -251,7 +302,7 @@ interface Creep extends HasPosition {
      * Transfer resource from the creep to another object. 
      * The target has to be at adjacent square to the creep.
      */
-    transfer: (target: Structure, resourceType: RESOURCE_CODE, amount?: number) => RESULT_CODE
+    transfer: (target: CreepOrStructure, resourceType: RESOURCE_CODE, amount?: number) => RESULT_CODE
 
     /**
      * Upgrade your controller to the next level using carried energy. 
@@ -269,13 +320,14 @@ interface Creep extends HasPosition {
 }
 
 
-interface Source extends Structure {
-
+declare class Source extends Structure {
 }
 
 interface CentralMemory {
     idleSpawnNames: QueueData<String>;
+    idleCreeps: QueueData<String>
     ageingCreeps: QueueData<String>;
+    missingRoads: any;
 }
 
 interface StringToNumber {
@@ -329,4 +381,25 @@ interface CreepMemory {
     spawnId: String;
     defaultBehavior: CreepBehaviorData;
     actionOverride: QueueData<CreepActionData>;
+}
+
+interface PairData<T1, T2> {
+    v1: T1;
+    v2: T2;
+}
+
+
+interface BTreeValueData<TKey, TValue> {
+    key: TKey;
+    value: TValue;
+    priority: number;
+}
+
+interface BTreeData<TKey, TValue> {
+    isLeaf: boolean;
+    isRoot: boolean;
+    isEmpty: boolean;
+    maxPriority: number;
+    values: Array<BTreeValueData<TKey, TValue>>;
+    children: Array<BTreeData<TKey, TValue>>;
 }
