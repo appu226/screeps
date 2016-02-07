@@ -34,14 +34,20 @@ var Pair = (function () {
     return Pair;
 })();
 var BTree = (function () {
-    function BTree(_data) {
+    function BTree(_data, _klt) {
         this.data = _data;
+        this.klt = _klt;
     }
+    BTree.prototype.kgt = function (l, r) { return this.klt(r, l); };
+    BTree.prototype.keq = function (l, r) { return (!this.klt(l, r) && !this.klt(r, l)); };
+    BTree.prototype.kleq = function (l, r) { return !this.klt(r, l); };
+    BTree.prototype.kgeq = function (l, r) { return !this.klt(l, r); };
+    BTree.prototype.kneq = function (l, r) { return (this.klt(l, r) || this.klt(r, l)); };
     BTree.prototype.find = function (key) {
         if (this.data.isEmpty)
             return { isDefined: false, get: null };
-        for (var vi = 0; vi < this.data.values.length && this.data.values[vi].key <= key; ++vi) {
-            if (this.data.values[vi].key == key)
+        for (var vi = 0; vi < this.data.values.length && this.kleq(this.data.values[vi].key, key); ++vi) {
+            if (this.keq(this.data.values[vi].key, key))
                 return { isDefined: true, get: this.data.values[vi] };
         }
         if (this.data.isLeaf)
@@ -49,7 +55,7 @@ var BTree = (function () {
         assert(this.data.children.length > vi, "Non leaf BTree has " +
             this.data.values.length + " values but " +
             this.data.children.length + " children.");
-        return new BTree(this.data.children[vi]).find(key);
+        return new BTree(this.data.children[vi], this.klt).find(key);
     };
     BTree.prototype.insertOrUpdate = function (key, value, priority) {
         if (this.data.isEmpty) {
@@ -72,8 +78,8 @@ var BTree = (function () {
         //this.refreshMaxPriority(); // <- Shouldn't be required
     };
     BTree.prototype.internalInsert = function (key, value, priority) {
-        for (var vi = 0; vi < this.data.values.length && this.data.values[vi].key <= key; ++vi) {
-            if (this.data.values[vi].key == key) {
+        for (var vi = 0; vi < this.data.values.length && this.kleq(this.data.values[vi].key, key); ++vi) {
+            if (this.keq(this.data.values[vi].key, key)) {
                 this.data.values[vi].value = value;
                 this.data.values[vi].priority = priority;
                 return { isDefined: false, get: null };
@@ -82,45 +88,129 @@ var BTree = (function () {
         if (this.data.isLeaf) {
             this.data.values.splice(vi, 0, { key: key, value: value, priority: priority });
         }
-        var insertionResult = new BTree(this.data.children[vi]).internalInsert(key, value, priority);
-        if (insertionResult.isDefined) {
-            var res = insertionResult.get;
-            this.data.children.splice(vi, 1, res.left, res.right);
-            this.data.values.splice(vi, 0, res.mid);
+        else {
+            var insertionResult = new BTree(this.data.children[vi], this.klt).internalInsert(key, value, priority);
+            if (insertionResult.isDefined) {
+                var res = insertionResult.get;
+                this.data.children.splice(vi, 1, res.left, res.right);
+                this.data.values.splice(vi, 0, res.mid);
+            }
         }
         return this.splitIfRequired();
     };
     BTree.prototype.splitIfRequired = function () {
         if (this.data.values.length < 3)
             return { isDefined: false, get: null };
-        if (this.data.values.length > 3)
-            throw "BTree size should not be greater than 3, found " + this.data.values.length;
+        assert(this.data.values.length <= 5, "BTree size should not be greater than 5, found " + this.data.values.length);
+        var midValueIndex = Math.floor(this.data.values.length / 2);
         var leftChild = {
             isLeaf: this.data.isLeaf,
             isRoot: false,
             isEmpty: false,
             maxPriority: 0,
-            values: [this.data.values[0]],
-            children: [this.data.children[0], this.data.children[1]]
+            values: this.data.values.slice(0, midValueIndex),
+            children: this.data.children.slice(0, midValueIndex + 1)
         };
-        new BTree(leftChild).refreshMaxPriority();
+        new BTree(leftChild, this.klt).refreshMaxPriority();
         var rightChild = {
             isLeaf: this.data.isLeaf,
             isRoot: false,
             isEmpty: false,
             maxPriority: 0,
-            values: [this.data.values[2]],
-            children: [this.data.children[2], this.data.children[3]]
+            values: this.data.values.slice(midValueIndex + 1),
+            children: this.data.children.slice(midValueIndex + 1)
         };
-        new BTree(rightChild).refreshMaxPriority();
+        new BTree(rightChild, this.klt).refreshMaxPriority();
         var insertionResult = {
             left: leftChild,
-            mid: this.data.values[1],
+            mid: this.data.values[midValueIndex],
             right: rightChild
         };
         return {
             isDefined: true,
             get: insertionResult
+        };
+    };
+    BTree.prototype.remove = function (key) {
+        var internalRemoveResult = this.internalRemove(key);
+        assert(!internalRemoveResult.balancingResult.isDefined, "Root node should not require rebalancing");
+        return internalRemoveResult.deletedValue;
+    };
+    BTree.prototype.internalRemove = function (key) {
+        if (this.data.isRoot && this.data.isLeaf) {
+            for (var i = 0; i < this.data.values.length; ++i) {
+                if (this.keq(this.data.values[i].key, key)) {
+                    var deletedValue = { isDefined: true, get: this.data.values[i] };
+                    this.data.values.splice(i, 1);
+                    this.data.isEmpty = (this.data.values.length == 0);
+                    this.refreshMaxPriority();
+                    return {
+                        deletedValue: deletedValue,
+                        balancingResult: { isDefined: false, get: null }
+                    };
+                }
+            }
+            return {
+                deletedValue: { isDefined: false, get: null },
+                balancingResult: { isDefined: false, get: null }
+            };
+        }
+        if (this.data.isLeaf) {
+            assert(this.data.values.length > 1, "Non-root leaf should have more than one element (found: " + this.data.values.length + ")");
+            var deletedValue = { isDefined: false, get: null };
+            for (var i = 0; i < this.data.values.length; ++i) {
+                if (this.keq(this.data.values[i].key, key)) {
+                    deletedValue = { isDefined: true, get: this.data.values[i] };
+                    this.data.values.splice(i, 1);
+                    this.refreshMaxPriority();
+                }
+            }
+            return {
+                deletedValue: deletedValue,
+                balancingResult: this.splitIfRequired()
+            };
+        }
+        var demotedIndex;
+        for (demotedIndex = 0; demotedIndex < this.data.values.length - 1 && this.klt(this.data.values[demotedIndex].key, key); ++demotedIndex) {
+        }
+        var demotedValue = this.data.values[demotedIndex];
+        var left = this.data.children[demotedIndex];
+        var right = this.data.children[demotedIndex + 1];
+        var mergedValues = left.values.concat(demotedValue).concat(right.values);
+        var mergedChildren = left.children.concat(right.children);
+        var mergedChild = {
+            isLeaf: left.isLeaf,
+            isRoot: false,
+            isEmpty: false,
+            maxPriority: Math.max(left.maxPriority, right.maxPriority, demotedValue.priority),
+            values: mergedValues,
+            children: mergedChildren
+        };
+        this.data.values.splice(demotedIndex, 1);
+        this.data.children.splice(demotedIndex, 2, mergedChild);
+        // this.refreshMaxPriority(); // <- should not be needed
+        var removeResult = new BTree(mergedChild, this.klt).internalRemove(key);
+        if (removeResult.balancingResult.isDefined) {
+            var br = removeResult.balancingResult.get;
+            this.data.values.splice(demotedIndex, 0, br.mid);
+            this.data.children.splice(demotedIndex, 1, br.left, br.right);
+            this.refreshMaxPriority();
+        }
+        if (this.data.values.length == 0) {
+            assert(this.data.children.length == 1, "Node with no values should have exactly 1 child, found " + this.data.children.length);
+            var child = this.data.children[0];
+            this.data.isLeaf = child.isLeaf;
+            this.data.isEmpty = child.isEmpty;
+            this.data.maxPriority = child.maxPriority;
+            this.data.values = child.values;
+            this.data.children = child.children;
+        }
+        if (this.data.values.length == 0)
+            this.data.isEmpty = false;
+        // this.refreshMaxPriority(); // <- should not be needex
+        return {
+            deletedValue: removeResult.deletedValue,
+            balancingResult: this.splitIfRequired()
         };
     };
     BTree.prototype.refreshMaxPriority = function () {
@@ -133,11 +223,74 @@ var BTree = (function () {
         }
         this.data.maxPriority = maxPriority;
     };
-    BTree.emptyBTree = function () {
+    BTree.prototype.toString = function () {
+        return JSON.stringify(this.data);
+    };
+    BTree.prototype.prettyPrint = function () {
+        console.log();
+        BTree.prettyPrint([this.data]);
+        console.log();
+    };
+    BTree.prototype.isEmpty = function () {
+        return this.data.isEmpty;
+    };
+    BTree.prototype.isWellFormed = function () {
+        return this.data.isRoot && BTree.isWellFormed(this.data, this.klt);
+    };
+    BTree.prettyPrint = function (dataArray) {
+        var nextLevel = [];
+        var thisLevel = [];
+        for (var di = 0; di < dataArray.length; ++di) {
+            var data = dataArray[di];
+            for (var ci = 0; ci < data.children.length; ++ci) {
+                nextLevel.push(data.children[ci]);
+            }
+            var dataKeys = [];
+            for (var vi = 0; vi < data.values.length; ++vi) {
+                dataKeys.push(data.values[vi].key.toString());
+            }
+            thisLevel.push("(" + dataKeys.join(",") + ")");
+        }
+        console.log(thisLevel.join("  "));
+        if (nextLevel.length > 0)
+            BTree.prettyPrint(nextLevel);
+    };
+    BTree.isWellFormed = function (data, klt) {
+        if (data.isEmpty)
+            return (data.values.length == 0 && data.children.length == 0);
+        if (data.isLeaf != (data.children.length == 0))
+            return false;
+        if (!data.isLeaf && (data.children.length != data.values.length + 1))
+            return false;
+        if (data.values.length < 1 || data.values.length > 2)
+            return false;
+        for (var i = 0; i < data.values.length; ++i) {
+            if (i < data.values.length - 1 && !klt(data.values[i].key, data.values[i + 1].key))
+                return false;
+            if (!data.isLeaf) {
+                var currKey = data.values[i].key;
+                var lastPrevChild = data.children[i].values[data.children[i].values.length - 1];
+                if (!klt(lastPrevChild.key, currKey))
+                    return false;
+                var firstNextChild = data.children[i + 1].values[0];
+                if (!klt(currKey, firstNextChild.key))
+                    return false;
+            }
+        }
+        var p = data.maxPriority - 1;
+        for (var i = 0; i < data.values.length; ++i)
+            p = Math.max(p, data.values[i].priority);
+        for (var i = 0; i < data.children.length; ++i)
+            p = Math.max(p, data.children[i].maxPriority);
+        if (p != data.maxPriority)
+            return false;
+        return true;
+    };
+    BTree.emptyBTree = function (klt) {
         return new BTree({
             isLeaf: false, isRoot: true, isEmpty: true,
             maxPriority: 0, values: [], children: []
-        });
+        }, klt);
     };
     return BTree;
 })();
@@ -688,6 +841,57 @@ var tests = {
         assert(set.contains("two") == true, "Set should have inserted key.");
         assert(set.contains("three") == true, "Set should have inserted key.");
         assert(set.contains("four") == false, "Set should not have un-inserted key.");
+    },
+    testBTree: function () {
+        var lt = function (l, r) { return parseInt(l.valueOf()) < parseInt(r.valueOf()); };
+        var btree = BTree.emptyBTree(lt);
+        assert(btree.isEmpty(), "Empty btree should have isEmpty set to true");
+        assert(btree.isWellFormed(), "Empty btree should be well formed.");
+        for (var i = 0; i < 20; ++i) {
+            btree.insertOrUpdate(i.toString(), i, Math.abs(25 - i));
+            assert(!btree.isEmpty(), "Btree with " + i + " elements should not have isEmpty");
+            assert(btree.isWellFormed(), "BTree with " + i + " elements should be well formed");
+            for (var j = -5; j < 15; ++j) {
+                var findResult = btree.find(j.toString());
+                assert(findResult.isDefined == (j >= 0 && j <= i), j + " should not be found after inserting [0, " + i + "].");
+                if (findResult.isDefined) {
+                    assert(findResult.get.key == j.toString(), "Found key should be searched key");
+                    assert(findResult.get.value == j, "Found value should be correct");
+                    assert(findResult.get.priority == Math.abs(25 - j), "Found priority should be correct");
+                }
+            }
+        }
+        btree = new BTree(JSON.parse(JSON.stringify(btree.data)), lt);
+        for (var i = 4; i < 40; i += 4) {
+            var removedResult = btree.remove(i.toString());
+            assert(removedResult.isDefined == (i < 20), "Removal should succeed only for inserted keys.");
+            if (removedResult.isDefined) {
+                assert(removedResult.get.key == i.toString(), "Removed key should be correct");
+                assert(removedResult.get.value == i, "Removed value should be correct");
+                assert(removedResult.get.priority == Math.abs(i - 25), "Removed priority should be correct");
+            }
+            assert(!btree.isEmpty(), "BTree should not be empty untill everything is removed.");
+            assert(btree.isWellFormed(), "BTree should be well formed after removal");
+            for (var j = -5; j < 15; ++j) {
+                var findResult = btree.find(j.toString());
+                assert(findResult.isDefined == (j >= 0 && j <= 20 && (j % 4 != 0 || j == 0 || j > i)), "Find result.isDefined was " + findResult.isDefined + " when searching for " + j + " after deleting " + i);
+                if (findResult.isDefined) {
+                    assert(findResult.get.key == j.toString(), "Found key should be searched key");
+                    assert(findResult.get.value == j, "Found value should be correct");
+                    assert(findResult.get.priority == Math.abs(25 - j), "Found priority should be correct");
+                }
+            }
+        }
+        btree = new BTree(JSON.parse(JSON.stringify(btree.data)), lt);
+        for (var i = 1; i < 20; ++i) {
+            var res = btree.remove(i.toString());
+            assert(btree.isWellFormed(), "BTree should be well formed after removal");
+            assert(!btree.isEmpty(), "BTree should not have isEmpty untill all elements have been removed.");
+            assert(!btree.find(i.toString()).isDefined, "Removed key " + i + " should not be findable");
+        }
+        btree.remove("0");
+        assert(btree.isWellFormed(), "BTree shouldbe well formed after removing all elements");
+        assert(btree.isEmpty(), "Btree should have isEmpty after removing all elements.");
     }
 };
 if (process) {
@@ -719,6 +923,9 @@ if (process) {
                 summary.push(" XXX CRASHED: " + test);
                 error = error + 1;
                 log.error(test + " crashed " + msg);
+            }
+            if (e.stack) {
+                log.warn(e.stack);
             }
         }
     }
