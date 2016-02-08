@@ -399,6 +399,7 @@ interface BTreeData<TKey, TValue> {
     isLeaf: boolean;
     isRoot: boolean;
     isEmpty: boolean;
+    size: number;
     maxPriority: number;
     values: Array<BTreeValueData<TKey, TValue>>;
     children: Array<BTreeData<TKey, TValue>>;

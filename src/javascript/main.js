@@ -62,8 +62,8 @@ var BTree = (function () {
             this.data.isLeaf = true;
             this.data.values.push({ key: key, value: value, priority: priority });
             this.data.isEmpty = false;
-            this.refreshMaxPriority();
             this.data.children = [];
+            BTree.refreshDerivedProperties(this.data);
         }
         var insertionResult = this.internalInsert(key, value, priority);
         if (insertionResult.isDefined) {
@@ -75,13 +75,14 @@ var BTree = (function () {
                 this.data.values = [res.mid],
                 this.data.children = [res.left, res.right];
         }
-        //this.refreshMaxPriority(); // <- Shouldn't be required
+        BTree.refreshDerivedProperties(this.data); // <- Shouldn't be required
     };
     BTree.prototype.internalInsert = function (key, value, priority) {
         for (var vi = 0; vi < this.data.values.length && this.kleq(this.data.values[vi].key, key); ++vi) {
             if (this.keq(this.data.values[vi].key, key)) {
                 this.data.values[vi].value = value;
                 this.data.values[vi].priority = priority;
+                BTree.refreshDerivedProperties(this.data);
                 return { isDefined: false, get: null };
             }
         }
@@ -96,6 +97,7 @@ var BTree = (function () {
                 this.data.values.splice(vi, 0, res.mid);
             }
         }
+        BTree.refreshDerivedProperties(this.data);
         return this.splitIfRequired();
     };
     BTree.prototype.splitIfRequired = function () {
@@ -107,20 +109,22 @@ var BTree = (function () {
             isLeaf: this.data.isLeaf,
             isRoot: false,
             isEmpty: false,
+            size: 0,
             maxPriority: 0,
             values: this.data.values.slice(0, midValueIndex),
             children: this.data.children.slice(0, midValueIndex + 1)
         };
-        new BTree(leftChild, this.klt).refreshMaxPriority();
+        BTree.refreshDerivedProperties(leftChild);
         var rightChild = {
             isLeaf: this.data.isLeaf,
             isRoot: false,
             isEmpty: false,
+            size: 0,
             maxPriority: 0,
             values: this.data.values.slice(midValueIndex + 1),
             children: this.data.children.slice(midValueIndex + 1)
         };
-        new BTree(rightChild, this.klt).refreshMaxPriority();
+        BTree.refreshDerivedProperties(rightChild);
         var insertionResult = {
             left: leftChild,
             mid: this.data.values[midValueIndex],
@@ -143,7 +147,7 @@ var BTree = (function () {
                     var deletedValue = { isDefined: true, get: this.data.values[i] };
                     this.data.values.splice(i, 1);
                     this.data.isEmpty = (this.data.values.length == 0);
-                    this.refreshMaxPriority();
+                    BTree.refreshDerivedProperties(this.data);
                     return {
                         deletedValue: deletedValue,
                         balancingResult: { isDefined: false, get: null }
@@ -162,7 +166,7 @@ var BTree = (function () {
                 if (this.keq(this.data.values[i].key, key)) {
                     deletedValue = { isDefined: true, get: this.data.values[i] };
                     this.data.values.splice(i, 1);
-                    this.refreshMaxPriority();
+                    BTree.refreshDerivedProperties(this.data);
                 }
             }
             return {
@@ -182,19 +186,21 @@ var BTree = (function () {
             isLeaf: left.isLeaf,
             isRoot: false,
             isEmpty: false,
+            size: 0,
             maxPriority: Math.max(left.maxPriority, right.maxPriority, demotedValue.priority),
             values: mergedValues,
             children: mergedChildren
         };
+        BTree.refreshDerivedProperties(mergedChild);
         this.data.values.splice(demotedIndex, 1);
         this.data.children.splice(demotedIndex, 2, mergedChild);
-        // this.refreshMaxPriority(); // <- should not be needed
+        BTree.refreshDerivedProperties(this.data); // <- should not be needed
         var removeResult = new BTree(mergedChild, this.klt).internalRemove(key);
         if (removeResult.balancingResult.isDefined) {
             var br = removeResult.balancingResult.get;
             this.data.values.splice(demotedIndex, 0, br.mid);
             this.data.children.splice(demotedIndex, 1, br.left, br.right);
-            this.refreshMaxPriority();
+            BTree.refreshDerivedProperties(this.data);
         }
         if (this.data.values.length == 0) {
             assert(this.data.children.length == 1, "Node with no values should have exactly 1 child, found " + this.data.children.length);
@@ -207,21 +213,23 @@ var BTree = (function () {
         }
         if (this.data.values.length == 0)
             this.data.isEmpty = false;
-        // this.refreshMaxPriority(); // <- should not be needex
+        BTree.refreshDerivedProperties(this.data); // <- should not be needed
         return {
             deletedValue: removeResult.deletedValue,
             balancingResult: this.splitIfRequired()
         };
     };
-    BTree.prototype.refreshMaxPriority = function () {
-        var maxPriority = 0;
-        for (var i = 0; i < this.data.values.length; ++i) {
-            maxPriority = Math.max(maxPriority, this.data.values[i].priority);
-        }
-        for (var c = 0; c < this.data.children.length; ++c) {
-            maxPriority = Math.max(maxPriority, this.data.children[c].maxPriority);
-        }
-        this.data.maxPriority = maxPriority;
+    BTree.prototype.findMaxPriority = function () {
+        return BTree.findMaxPriority(this.data);
+    };
+    BTree.prototype.popMaxPriority = function () {
+        var res = this.findMaxPriority();
+        if (res.isDefined)
+            this.remove(res.get.key);
+        return res;
+    };
+    BTree.prototype.length = function () {
+        return this.data.size;
     };
     BTree.prototype.toString = function () {
         return JSON.stringify(this.data);
@@ -236,6 +244,48 @@ var BTree = (function () {
     };
     BTree.prototype.isWellFormed = function () {
         return this.data.isRoot && BTree.isWellFormed(this.data, this.klt);
+    };
+    BTree.findMaxPriority = function (data) {
+        var mp = data.maxPriority;
+        for (var vi = 0; vi < data.values.length; ++vi) {
+            if (data.values[vi].priority == mp) {
+                return {
+                    isDefined: true,
+                    get: data.values[vi]
+                };
+            }
+        }
+        for (var ci = 0; ci < data.children.length; ++ci) {
+            if (data.children[ci].maxPriority == mp) {
+                return BTree.findMaxPriority(data.children[ci]);
+            }
+        }
+        return {
+            isDefined: false,
+            get: null
+        };
+    };
+    BTree.refreshDerivedProperties = function (data) {
+        var maxPriority;
+        if (data.values.length > 0)
+            maxPriority = data.values[0].priority;
+        else if (data.children.length > 0)
+            maxPriority = data.children[0].maxPriority;
+        else {
+            data.maxPriority = 0;
+            data.size = 0;
+            return;
+        }
+        var size = data.values.length;
+        for (var i = 0; i < data.values.length; ++i) {
+            maxPriority = Math.max(maxPriority, data.values[i].priority);
+        }
+        for (var c = 0; c < data.children.length; ++c) {
+            maxPriority = Math.max(maxPriority, data.children[c].maxPriority);
+            size += data.children[c].size;
+        }
+        data.maxPriority = maxPriority;
+        data.size = size;
     };
     BTree.prettyPrint = function (dataArray) {
         var nextLevel = [];
@@ -257,7 +307,7 @@ var BTree = (function () {
     };
     BTree.isWellFormed = function (data, klt) {
         if (data.isEmpty)
-            return (data.values.length == 0 && data.children.length == 0);
+            return (data.values.length == 0 && data.children.length == 0 && data.size == 0);
         if (data.isLeaf != (data.children.length == 0))
             return false;
         if (!data.isLeaf && (data.children.length != data.values.length + 1))
@@ -278,17 +328,26 @@ var BTree = (function () {
             }
         }
         var p = data.maxPriority - 1;
+        var s = data.values.length;
         for (var i = 0; i < data.values.length; ++i)
             p = Math.max(p, data.values[i].priority);
-        for (var i = 0; i < data.children.length; ++i)
+        for (var i = 0; i < data.children.length; ++i) {
             p = Math.max(p, data.children[i].maxPriority);
+            s += data.children[i].size;
+            if (!BTree.isWellFormed(data.children[i], klt)) {
+                console.log(JSON.stringify(data.children[i]));
+                return false;
+            }
+        }
         if (p != data.maxPriority)
+            return false;
+        if (s != data.size)
             return false;
         return true;
     };
     BTree.emptyBTree = function (klt) {
         return new BTree({
-            isLeaf: false, isRoot: true, isEmpty: true,
+            isLeaf: false, isRoot: true, isEmpty: true, size: 0,
             maxPriority: 0, values: [], children: []
         }, klt);
     };
@@ -843,12 +902,28 @@ var tests = {
         assert(set.contains("four") == false, "Set should not have un-inserted key.");
     },
     testBTree: function () {
-        var lt = function (l, r) { return parseInt(l.valueOf()) < parseInt(r.valueOf()); };
+        var lt = function (l, r) {
+            return parseInt(l.valueOf()) < parseInt(r.valueOf());
+        };
+        var maxPriority = function (pStore) {
+            var max = 0;
+            for (var i = 0; i < pStore.length; ++i) {
+                max = Math.max(max, pStore[i]);
+            }
+            return max;
+        };
+        var priority = function (j) {
+            return j * (15 - j);
+        };
         var btree = BTree.emptyBTree(lt);
+        var priorities = [];
         assert(btree.isEmpty(), "Empty btree should have isEmpty set to true");
         assert(btree.isWellFormed(), "Empty btree should be well formed.");
         for (var i = 0; i < 20; ++i) {
-            btree.insertOrUpdate(i.toString(), i, Math.abs(25 - i));
+            btree.insertOrUpdate(i.toString(), i, priority(i));
+            priorities.push(priority(i));
+            assert(btree.findMaxPriority().isDefined, "Max priority element should exist");
+            assert(btree.findMaxPriority().get.priority == maxPriority(priorities), "Incorrect max priority");
             assert(!btree.isEmpty(), "Btree with " + i + " elements should not have isEmpty");
             assert(btree.isWellFormed(), "BTree with " + i + " elements should be well formed");
             for (var j = -5; j < 15; ++j) {
@@ -857,7 +932,7 @@ var tests = {
                 if (findResult.isDefined) {
                     assert(findResult.get.key == j.toString(), "Found key should be searched key");
                     assert(findResult.get.value == j, "Found value should be correct");
-                    assert(findResult.get.priority == Math.abs(25 - j), "Found priority should be correct");
+                    assert(findResult.get.priority == priority(j), "Found priority should be correct");
                 }
             }
         }
@@ -868,7 +943,10 @@ var tests = {
             if (removedResult.isDefined) {
                 assert(removedResult.get.key == i.toString(), "Removed key should be correct");
                 assert(removedResult.get.value == i, "Removed value should be correct");
-                assert(removedResult.get.priority == Math.abs(i - 25), "Removed priority should be correct");
+                assert(removedResult.get.priority == priority(i), "Removed priority should be correct");
+                priorities[i] = -5000000;
+                assert(btree.findMaxPriority().isDefined, "Max priority element should exist");
+                assert(btree.findMaxPriority().get.priority == maxPriority(priorities), "Incorrect max priority");
             }
             assert(!btree.isEmpty(), "BTree should not be empty untill everything is removed.");
             assert(btree.isWellFormed(), "BTree should be well formed after removal");
@@ -878,7 +956,7 @@ var tests = {
                 if (findResult.isDefined) {
                     assert(findResult.get.key == j.toString(), "Found key should be searched key");
                     assert(findResult.get.value == j, "Found value should be correct");
-                    assert(findResult.get.priority == Math.abs(25 - j), "Found priority should be correct");
+                    assert(findResult.get.priority == priority(j), "Found priority should be correct");
                 }
             }
         }
@@ -888,6 +966,9 @@ var tests = {
             assert(btree.isWellFormed(), "BTree should be well formed after removal");
             assert(!btree.isEmpty(), "BTree should not have isEmpty untill all elements have been removed.");
             assert(!btree.find(i.toString()).isDefined, "Removed key " + i + " should not be findable");
+            priorities[i] = -5000000;
+            assert(btree.findMaxPriority().isDefined, "Max priority element should exist");
+            assert(btree.findMaxPriority().get.priority == maxPriority(priorities), "Incorrect max priority");
         }
         btree.remove("0");
         assert(btree.isWellFormed(), "BTree shouldbe well formed after removing all elements");
