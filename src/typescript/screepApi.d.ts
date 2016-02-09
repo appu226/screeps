@@ -325,9 +325,7 @@ declare class Source extends Structure {
 
 interface CentralMemory {
     idleSpawnNames: QueueData<String>;
-    idleCreeps: QueueData<String>
     ageingCreeps: QueueData<String>;
-    missingRoads: any;
 }
 
 interface StringToNumber {

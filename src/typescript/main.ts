@@ -382,71 +382,6 @@ class BTree<TKey, TValue> {
 }
 
 //====================================================================
-class Map<TElement>{
-    mapData: any;
-    constructor(mapData_: any) {
-        this.mapData = mapData_;
-    }
-    containsKey(key: string): boolean {
-        return (this.mapData[key] !== undefined);
-    }
-    keys(): Array<String> {
-        var result: Array<String> = [];
-        for (var p in this.mapData) {
-            if (this.mapData[p] !== undefined)
-                result.push(p);
-        }
-        return result;
-    }
-    get(key: string): Option<TElement> {
-        if (this.containsKey(key)) {
-            return { isDefined: true, get: <TElement>this.mapData[key] };
-        } else
-            return { isDefined: false, get: null };
-    }
-    set(key: string, value: TElement): boolean {
-        if (this.containsKey(key)) {
-            return false;
-        } else {
-            this.mapData[key] = value;
-            return true;
-        }
-    }
-    pop(key: string): Option<TElement> {
-        var ret = this.get(key);
-        if (ret.isDefined)
-            this.mapData[key] = undefined;
-        return ret;
-    }
-
-    static emptyMap<TElement>(): Map<TElement> {
-        return new Map<TElement>({});
-    }
-}
-//====================================================================
-class Set {
-    map: Map<String>;
-    constructor(map_: Map<String>) {
-        this.map = map_;
-    }
-    contains(key: string): boolean {
-        return this.map.containsKey(key);
-    }
-    insert(key: string): boolean {
-        return this.map.set(key, key);
-    }
-    remove(key: string): boolean {
-        return this.map.pop(key).isDefined;
-    }
-    keys(): Array<String> {
-        return this.map.keys();
-    }
-    static emptySet(): Set {
-        return new Set(Map.emptyMap<String>());
-    }
-}
-
-//====================================================================
 class Queue<TElement>{
     queueData: QueueData<TElement>;
     constructor(queueData_: QueueData<TElement>) {
@@ -523,21 +458,6 @@ var isAdjacent = function(pos1: RoomPosition, pos2: RoomPosition): boolean {
 var commonCreepWork = function(creep: Creep) {
     if (creep.ticksToLive == 5)
         (new Queue<String>(Memory.centralMemory.ageingCreeps)).push(creep.id);
-
-    // Look if the position requires a road.
-    var structures: Array<Structure> = creep.pos.lookFor('structure');
-    var foundRoad = false;
-    for (var i = 0; i < structures.length; ++i)
-    if (structures[i].structureType == STRUCTURE_ROAD) foundRoad = true;
-    if (!foundRoad) {
-        var missingRoads: Map<number> = new Map<number>(Memory.centralMemory.missingRoads);
-        var key: string = creep.pos.roomName + ":" + creep.pos.x.toString() + "," + creep.pos.y.toString();
-        var prevVal = missingRoads.pop(key);
-        if (prevVal.isDefined) {
-            missingRoads.set(key, prevVal.get + 1);
-        } else
-            missingRoads.set(key, 1);
-    }
 };
 
 //==============================================================================
@@ -698,9 +618,7 @@ var centralCommand = function() {
     if (!Memory.centralMemory) {
         Memory.centralMemory = {
             idleSpawnNames: Queue.emptyQueueData<String>(),
-            ageingCreeps: Queue.emptyQueueData<String>(),
-            idleCreeps: Queue.emptyQueueData<String>(),
-            missingRoads: {}
+            ageingCreeps: Queue.emptyQueueData<String>()
         };
         log.info("Initialized Memory.centralMemory.");
         Memory.bodyTypeCosts = GameRules.createBodyTypeCosts();
@@ -821,127 +739,6 @@ var tests = {
         assert(queue.length() == 0, "Queue should be empty.");
         assert(queue.top() == null, "Top of empty queue should return null.");
         assert(queue.pop() == null, "Pop of empty queue should return null.");
-    },
-    testMap: function(): void {
-        var map = Map.emptyMap<number>();
-        assert(map.keys().length == 0, "Length of empty map should be 0.");
-        assert(map.get("one").isDefined == false, "Empty map should return empty option.");
-        map.set("one", 1);
-        var keys = map.keys();
-        assert(keys.length == 1, "Length of map should be 1 after first insert.");
-        assert(keys[0] == "one", "Keys should have only the inserted key.");
-        var get = map.get("one");
-        assert(get.isDefined, "Lookup of inserted key should not be empty.");
-        assert(get.get == 1, "Lookup of inserted key should give inserted value.");
-        assert(map.get("two").isDefined == false, "Lookup of key not yet inserted should give empty option.");
-
-        map.set("two", 2);
-        keys = map.keys();
-        var expectedKeys = ["one", "two"];
-        keys.sort();
-        expectedKeys.sort();
-        assert(keys.length == expectedKeys.length && keys.length == 2, "Length of map after two insertions should be 2.");
-        for (var i = 0; i < keys.length; ++i) {
-            assert(keys[i] == expectedKeys[i], "keys[" + i + "] should match expectedKeys[" + i + "].");
-        }
-        get = map.get("one");
-        assert(get.isDefined, "Lookup of one should not be empty.");
-        assert(get.get == 1, "Lookup of one should give 1.");
-        get = map.get("two");
-        assert(get.isDefined, "Lookup of two should not be empty.");
-        assert(get.get == 2, "Lookup of two should give inserted value.");
-        assert(map.get("three").isDefined == false, "Lookup of three should not be defined.");
-
-        map = new Map<number>(map.mapData);
-
-        map.set("three", 3);
-        keys = map.keys();
-        var expectedKeys = ["one", "two", "three"];
-        keys.sort();
-        expectedKeys.sort();
-        assert(keys.length == expectedKeys.length && keys.length == 3, "Length of map after three insertions should be 3.");
-        for (var i = 0; i < keys.length; ++i) {
-            assert(keys[i] == expectedKeys[i], "keys[" + i + "] should match expectedKeys[" + i + "].");
-        }
-        get = map.get("one");
-        assert(get.isDefined, "Lookup of one should not be empty.");
-        assert(get.get == 1, "Lookup of one should give 1.");
-        get = map.get("two");
-        assert(get.isDefined, "Lookup of two should not be empty.");
-        assert(get.get == 2, "Lookup of two should give inserted value.");
-        get = map.get("three");
-        assert(get.isDefined, "Lookup of two should not be empty.");
-        assert(get.get == 3, "Lookup of two should give inserted value.");
-        assert(map.get("four").isDefined == false, "Lookup of three should not be defined.");
-
-        map.pop("two");
-        keys = map.keys();
-        expectedKeys = ["one", "three"];
-        keys.sort();
-        expectedKeys.sort();
-        assert(keys.length == expectedKeys.length && keys.length == 2, "Length of map after two insertions should be 2.");
-        for (var i = 0; i < keys.length; ++i) {
-            assert(keys[i] == expectedKeys[i], "keys[" + i + "] should match expectedKeys[" + i + "].");
-        }
-        get = map.get("one");
-        assert(get.isDefined, "Lookup of one should not be empty.");
-        assert(get.get == 1, "Lookup of one should give 1.");
-        get = map.get("three");
-        assert(get.isDefined, "Lookup of three should not be empty.");
-        assert(get.get == 3, "Lookup of three should give inserted value.");
-        assert(map.get("two").isDefined == false, "Lookup of two should not be defined.");
-    },
-
-    testSet: function(): void {
-        var set = Set.emptySet();
-        var keys = set.keys();
-        var expectedKeys: Array<String> = [];
-        assert(keys.length == 0, "Length of empty set should be zero.");
-        assert(set.contains("one") == false, "Empty set should not contain one");
-        set.insert("one");
-        keys = set.keys();
-        assert(set.contains("one"), "Set with one should contain one.");
-        expectedKeys = ["one"];
-        assert(keys.length == 1 && keys.length == expectedKeys.length, "Set keys should have expected length.");
-        for (var i = 0; i < keys.length; ++i) {
-            assert(keys[i] == expectedKeys[i], "Keys should have expected keys.");
-        }
-
-        set = new Set(set.map);
-        set.insert("two");
-        keys = set.keys();
-        expectedKeys = ["one", "two"];
-        keys.sort(); expectedKeys.sort();
-        assert(keys.length == 2 && keys.length == expectedKeys.length, "Set keys should have expected length.");
-        for (var i = 0; i < keys.length; ++i) {
-            assert(keys[i] == expectedKeys[i], "Keys should have expected keys.");
-        }
-
-        set.remove("one");
-        set.insert("two");
-        keys = set.keys();
-        expectedKeys = ["two"];
-        keys.sort(); expectedKeys.sort();
-        assert(keys.length == 1 && keys.length == expectedKeys.length, "Set keys should have expected length.");
-        for (var i = 0; i < keys.length; ++i) {
-            assert(keys[i] == expectedKeys[i], "Keys should have expected keys.");
-        }
-        assert(set.contains("one") == false, "Set should not have removed key.");
-        assert(set.contains("two") == true, "Set should have inserted key.");
-
-        set.insert("one");
-        set.insert("three");
-        keys = set.keys();
-        expectedKeys = ["one", "two", "three"];
-        keys.sort(); expectedKeys.sort();
-        assert(keys.length == 3 && keys.length == expectedKeys.length, "Set keys should have expected length.");
-        for (var i = 0; i < keys.length; ++i) {
-            assert(keys[i] == expectedKeys[i], "Keys should have expected keys.");
-        }
-        assert(set.contains("one") == true, "Set should have re-inserted key.");
-        assert(set.contains("two") == true, "Set should have inserted key.");
-        assert(set.contains("three") == true, "Set should have inserted key.");
-        assert(set.contains("four") == false, "Set should not have un-inserted key.");
     },
 
     testBTree: function(): void {
