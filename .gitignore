@@ -2,3 +2,5 @@ src/ignored/*
 .settings
 .externalToolBuilders
 src/.vimrc
+src/.ctags
+src/tags

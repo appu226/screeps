@@ -7,6 +7,7 @@ declare var CARRY: BODY_TYPE;
 declare var ATTACK: BODY_TYPE;
 declare var RANGED_ATTACK: BODY_TYPE;
 declare var HEAL: BODY_TYPE;
+declare var CLAIM: BODY_TYPE;
 declare var TOUGH: BODY_TYPE;
 
 interface RESULT_CODE { }
@@ -74,24 +75,32 @@ declare var FIND_EXIT_BOTTOM: FIND_CONSTANT;
 declare var FIND_EXIT_LEFT: FIND_CONSTANT;
 declare var FIND_EXIT: FIND_CONSTANT;
 
+interface DIRECTION_CONSTANT { }
+declare var TOP: DIRECTION_CONSTANT;
+declare var TOP_RIGHT: DIRECTION_CONSTANT;
+declare var RIGHT: DIRECTION_CONSTANT;
+declare var BOTTOM_RIGHT: DIRECTION_CONSTANT;
+declare var BOTTOM: DIRECTION_CONSTANT;
+declare var BOTTOM_LEFT: DIRECTION_CONSTANT;
+declare var LEFT: DIRECTION_CONSTANT;
+declare var TOP_LEFT: DIRECTION_CONSTANT;
 
-
-declare class HasPosition {
+interface HasPosition {
     pos: RoomPosition;
     room: Room;
 }
 
-declare class Structure extends HasPosition implements CreepOrStructure {
-    id: String;
-    name: String;
+interface Structure extends HasPosition, CreepOrStructure {
+    id: string;
+    name: string;
     structureType: STRUCTURE_TYPE;
     hits: number;
     hitsMax: number;
 }
 
-declare class ConstructionSite extends HasPosition {
-    id: String;
-    name: String;
+interface ConstructionSite extends HasPosition {
+    id: string;
+    name: string;
     /**
      * The current construction progress.
      */
@@ -109,8 +118,8 @@ declare class ConstructionSite extends HasPosition {
 
 }
 
-declare class RoomPosition {
-    roomName: String;
+interface RoomPosition {
+    roomName: string;
     x: number;
     y: number;
     
@@ -118,6 +127,68 @@ declare class RoomPosition {
      * Find an object with the shortest linear distance from the given position.
      */
     findClosestByRange: (type: FIND_CONSTANT, opts?: any) => any;
+
+    /**
+     * Find an object with the shortest path from the given position. 
+     * Uses A* search algorithm and Dijkstra's algorithm.
+     *
+     * Arguments
+     *   type
+     *     number
+     *     See Room.find.
+     *
+     *   objects
+     *     array
+     *     An array of room's objects or RoomPosition objects that the search should be executed against.
+     *
+     *   opts (optional)
+     *   object
+     *   An object containing pathfinding options (see Room.findPath), or one of the following:
+     *     filter
+     *         object, function, string
+     *         Only the objects which pass the filter using the Lodash.filter method will be used.
+     *     algorithm
+     *         string
+     *         One of the following constants:
+     *             astar is faster when there are relatively few possible targets;
+     *             dijkstra is faster when there are a lot of possible targets or 
+     *             when the closest target is nearby.
+     *         The default value is determined automatically using heuristics.
+     *
+     * Return value
+     *   The closest object if found, null otherwise.
+     */
+    findClosestByPath: (type: FIND_CONSTANT, opts?: any) => any;
+
+    /**
+     * Find an optimal path to the specified position using A* search algorithm. 
+     *   This method is a shorthand for Room.findPath. 
+     *   If the target is in another room, then the corresponding exit will be used as a target.
+     * 
+     * Arguments
+     *   x
+     *     number
+     *     X position in the room.
+     *   y
+     *     number
+     *     Y position in the room.
+     *   target
+     *     object
+     *     Can be a RoomPosition object or any object containing RoomPosition.
+     *   opts (optional)
+     *     object
+     *     An object containing pathfinding options flags (see Room.findPath for more details).
+     *
+     * Return value
+     *   An array with path steps.
+     */
+    findPathTo: (target: HasPosition, opts?: any) => Array<Step>;
+
+    /**
+     * Check whether this position is on the adjacent square to the specified position. 
+     * The same as inRangeTo(target, 1).
+     */
+    isNearTo: (x: number, y: number) => boolean
 
     /**
      * Get an object with the given type at the specified room position.
@@ -134,7 +205,7 @@ declare class RoomPosition {
      *
      * Returns: An array of objects of the given type at the specified position if found.
      */
-    lookFor: (objectType: String) => Array<any>;
+    lookFor: (objectType: string) => Array<any>;
 }
 
 interface Controller extends Structure {
@@ -149,9 +220,14 @@ interface Room {
      * The Controller structure of this room, if present, otherwise undefined.
      */
     controller: Controller;
+
+    /**
+     * Total amount of energyCapacity of all spawns and extensions in the room.
+     */
+    energyCapacityAvailable: number;
 }
 
-declare class Spawn extends HasPosition {
+interface Spawn extends HasPosition {
     /**
      * Start the creep spawning process.
      * @param {Array<BODY_TYPE>} body - An array describing the new creep’s body. Should contain 1 to 50 elements.
@@ -170,7 +246,7 @@ declare class Spawn extends HasPosition {
      * You can use Game.getObjectById method to retrieve an object instance 
      * by its id. 
     */
-    id: String;
+    id: string;
 
     /**
      * A shorthand to Memory.spawns[spawn.name].
@@ -185,20 +261,28 @@ declare class Spawn extends HasPosition {
      * and it cannot be changed later. 
      * This name is a hash key to access the spawn via the Game.spawns object.
      */
-    name: String;
+    name: string;
     
     /**
      * If the spawn is in process of spawning a new creep, 
      * this object will contain the new creep’s information, 
      * or null otherwise.
      */
-    spawning: { name: String, needTime: number, remainingTime: number };
+    spawning: { name: string, needTime: number, remainingTime: number };
 
+}
+
+interface Step {
+    x: number;
+    y: number;
+    dx: number;
+    dy: number;
+    direction: DIRECTION_CONSTANT;
 }
 
 interface CreepOrStructure { }
 
-declare class Creep extends HasPosition implements CreepOrStructure {
+interface Creep extends HasPosition, CreepOrStructure {
     /**
      * Display a visual speech balloon above the creep 
      * with the specified message. 
@@ -206,7 +290,7 @@ declare class Creep extends HasPosition implements CreepOrStructure {
      * Useful for debugging purposes. 
      * Only the creep's owner can see the speech message.
      */
-    say: (msg: String) => void;
+    say: (msg: string) => void;
     
     /**
      * A shorthand to Memory.creeps[creep.name]. 
@@ -216,6 +300,11 @@ declare class Creep extends HasPosition implements CreepOrStructure {
      * but you still can write its memory like that.
      */
     memory: CreepMemory;
+   
+    /**
+     * An array describing the creep’s body.
+     */
+    body: Array<{type: BODY_TYPE, hits: number }>;
     
     /**
      * Build a structure at the target construction site using carried energy. 
@@ -259,7 +348,7 @@ declare class Creep extends HasPosition implements CreepOrStructure {
      * You can use Game.getObjectById method to retrieve 
      * an object instance by its id.
      */
-    id: String;
+    id: string;
     
     /**
      * Find the optimal path to the target within the same room 
@@ -278,13 +367,13 @@ declare class Creep extends HasPosition implements CreepOrStructure {
      * and it cannot be changed later. 
      * This name is a hash key to access the creep via the Game.creeps object.
      */
-    name: String;
+    name: string;
     
     /**
      * An object with the creep’s owner info containing the following properties:
      * username: String: The name of the owner user.
      */
-    owner: { username: String }
+    owner: { username: string }
     
     /**
      * Repair a damaged structure using carried energy. 
@@ -292,6 +381,11 @@ declare class Creep extends HasPosition implements CreepOrStructure {
      * The target has to be within 3 squares range of the creep.
      */
     repair: (target: any) => RESULT_CODE;
+
+    /**
+     * Whether this creep is still being spawned.
+     */
+    spawning: boolean;
     
     /**
      * The remaining amount of game ticks after which the creep will die.
@@ -320,72 +414,56 @@ declare class Creep extends HasPosition implements CreepOrStructure {
 }
 
 
-declare class Source extends Structure {
+interface Source extends Structure {
+    
 }
 
-interface CentralMemory {
-    idleSpawnNames: QueueData<String>;
-    ageingCreeps: QueueData<String>;
-}
 
-interface StringToNumber {
-    [key: string]: number;
-}
-
-declare var Memory: {
-    creeps: any;
-    spawns: any;
+//Global objects
+interface IMemory{
+    creeps: StringDictionary<CreepMemory>;
+    spawns: StringDictionary<SpawnMemory>;
     centralMemory: CentralMemory;
-    bodyTypeCosts: StringToNumber;
 }
 
-declare var Game: {
-    creeps: any;
+declare var Memory: IMemory;
+
+interface IGame {
+    creeps: StringDictionary<Creep>;
     gcl: {
         level: number;
         progress: number;
         progressTotal: number;
     };
-    getObjectById: (id: String) => any;
-    spawns: any;
+    getObjectById: (id: string) => any;
+    spawns: StringDictionary<Spawn>;
 }
+
+declare var Game: IGame;
 
 
 //Types i'm forced to declare for the way screep main is to be defined.
 declare var module: any
 
-//My own types, declared here for convenience.
+//Serializable data types
 interface Option<TElement> {
     isDefined: boolean;
     get: TElement;
 }
 
-//My own types, declared here for convenience.
+interface StringDictionary<TElement> {
+    [key: string]: TElement;
+}
+
 interface QueueData<TElement> {
     popArray: Array<TElement>;
     pushArray: Array<TElement>;
-}
-interface ConstructorData {
-    createdType: String;
-}
-interface CreepBehaviorData extends ConstructorData { }
-interface CreepActionData extends ConstructorData { }
-
-interface SpawnMemory {
-    buildQueue: QueueData<CreepBehaviorData>;
-}
-
-interface CreepMemory {
-    spawnId: String;
-    defaultBehavior: CreepBehaviorData;
-    actionOverride: QueueData<CreepActionData>;
 }
 
 interface PairData<T1, T2> {
     v1: T1;
     v2: T2;
 }
-
 
 interface BTreeValueData<TKey, TValue> {
     key: TKey;
@@ -401,4 +479,41 @@ interface BTreeData<TKey, TValue> {
     maxPriority: number;
     values: Array<BTreeValueData<TKey, TValue>>;
     children: Array<BTreeData<TKey, TValue>>;
+}
+
+//Memory objects
+interface CreepBuildData {
+    name: string;
+    body: Array<BODY_TYPE>;
+    memory: CreepMemory;
+}
+
+interface SpawnMemory {
+    tacticQueue: QueueData<CreepBuildData>;
+    strategyQueue: QueueData<CreepBuildData>;
+}
+
+interface CreepMemory {
+    typeName: string;
+    formation: string;
+}
+
+interface Task {
+    typeName: string;
+}
+
+interface Formation {
+    name: string;
+    typeName: string;
+    creeps: Array<string>;
+}
+
+interface CentralMemory {
+    strategy: Array<Task>;
+    tactic: Array<Task>;
+    formations: StringDictionary<Formation>;
+    idleCreeps: Array<string>;
+    scheduledCreeps: StringDictionary<string>; //map from creep name to spawn name
+    spawningCreeps: StringDictionary<string>;
+    uniqueCounter: number;
 }

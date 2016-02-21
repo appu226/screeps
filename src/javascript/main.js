@@ -4,16 +4,28 @@ var log = {
     WARN: 4,
     ERROR: 5,
     //vvvvvvvvv
-    CURRENT: 4,
+    CURRENT: 3,
     //^^^^^^^^^
     print: function (msg, level) {
         if (level >= this.CURRENT)
-            console.log(msg);
+            console.log("[" + log.levelString(level) + "]:\t" + msg);
     },
     debug: function (msg) { this.print(msg, this.DEBUG); },
     info: function (msg) { this.print(msg, this.INFO); },
     warn: function (msg) { this.print(msg, this.WARN); },
-    error: function (msg) { this.print(msg, this.ERROR); }
+    error: function (msg) { this.print(msg, this.ERROR); },
+    levelString: function (level) {
+        if (level <= log.DEBUG)
+            return "DEBUG";
+        else if (level == log.INFO)
+            return "INFO";
+        else if (level == log.WARN)
+            return "WARN";
+        else if (level == log.ERROR)
+            return "ERROR";
+        else
+            return level.toString();
+    }
 };
 //====================================================================
 var unimplemented = function (msg) {
@@ -32,6 +44,85 @@ var Pair = (function () {
             return (f1(this.data.v1));
     };
     return Pair;
+})();
+//====================================================================
+var ArrayUtils = (function () {
+    function ArrayUtils() {
+    }
+    ArrayUtils.foreach = function (array, func) {
+        for (var elemi = 0; elemi < array.length; ++elemi) {
+            func(array[elemi]);
+        }
+    };
+    ArrayUtils.find = function (array, func) {
+        for (var elemi = 0; elemi < array.length; ++elemi) {
+            if (func(array[elemi]))
+                return OptionUtils.some(array[elemi]);
+        }
+        return OptionUtils.none();
+    };
+    ArrayUtils.findOrThrow = function (array, func, errorMsg) {
+        var resOpt = ArrayUtils.find(array, func);
+        return OptionUtils.getOrThrow(resOpt, errorMsg);
+    };
+    ArrayUtils.map = function (input, func) {
+        var result = [];
+        for (var i = 0; i < input.length; ++i)
+            result.push(func(input[i]));
+        return result;
+    };
+    ArrayUtils.sum = function (input) {
+        var result = 0;
+        for (var i = 0; i < input.length; ++i)
+            result = result + input[i];
+        return result;
+    };
+    ArrayUtils.filter = function (input, f) {
+        var result = [];
+        for (var i = 0; i < input.length; ++i) {
+            if (f(input[i]))
+                result.push(input[i]);
+        }
+        return result;
+    };
+    ArrayUtils.toStringDictionary = function (keys, values) {
+        var result = {};
+        for (var i = 0; i < keys.length && i < values.length; ++i) {
+            result[keys[i]] = values[i];
+        }
+        return result;
+    };
+    return ArrayUtils;
+})();
+//==============================================================================
+var LazyValue = (function () {
+    function LazyValue(creator) {
+        this.memo = OptionUtils.none();
+        this.creator = creator;
+    }
+    LazyValue.prototype.get = function () {
+        if (!this.memo.isDefined) {
+            this.memo = OptionUtils.some(this.creator());
+        }
+        return this.memo.get;
+    };
+    return LazyValue;
+})();
+//==============================================================================
+var OptionUtils = (function () {
+    function OptionUtils() {
+    }
+    OptionUtils.some = function (value) { return { isDefined: true, get: value }; };
+    ;
+    OptionUtils.none = function () { return { isDefined: false, get: null }; };
+    ;
+    OptionUtils.getOrThrow = function (opt, errMsg) {
+        if (opt.isDefined)
+            return opt.get;
+        else
+            throw errMsg;
+    };
+    return OptionUtils;
 })();
 var BTree = (function () {
     function BTree(_data, _klt) {
@@ -393,274 +484,404 @@ var Queue = (function () {
     Queue.emptyQueue = function () {
         return new Queue(Queue.emptyQueueData());
     };
+    Queue.createFromArray = function (input) {
+        return {
+            popArray: [],
+            pushArray: input
+        };
+    };
     return Queue;
 })();
 //==============================================================================
-var creepActions = {
-    get: function (name) {
-        return this[name];
-    },
-    work: function (creep, actionData) {
-        this.get(actionData.createdType).work(creep, actionData);
+var MemoryUtils = (function () {
+    function MemoryUtils() {
     }
-};
-//==============================================================================
-var isAdjacent = function (pos1, pos2) {
-    if (pos1.roomName != pos2.roomName)
-        return false;
-    var delX = Math.abs(pos1.x - pos2.x);
-    var delY = Math.abs(pos1.y - pos2.y);
-    return (delX <= 1 && delY <= 1 && delX + delY > 0);
-};
-//==============================================================================
-var commonCreepWork = function (creep) {
-    if (creep.ticksToLive == 5)
-        (new Queue(Memory.centralMemory.ageingCreeps)).push(creep.id);
-};
-//==============================================================================
-var CBDWorker = (function () {
-    function CBDWorker(fromId_, toId_) {
-        this.fromId = fromId_;
-        this.toId = toId_;
-        this.createdType = CBDWorker.className;
-    }
-    CBDWorker.className = "CBDMover";
-    return CBDWorker;
-})();
-;
-var CBOWorker = (function () {
-    function CBOWorker() {
-    }
-    CBOWorker.prototype.create = function (spawn, data) {
-        log.debug("CBMover.create");
-        var cbdMover = data;
-        var energy = spawn.energy;
-        if (energy < 200)
-            return false;
-        var body = [MOVE, CARRY, WORK];
-        energy = energy - 200;
-        while (energy >= 100) {
-            body.push(WORK);
-            energy = energy - 100;
+    MemoryUtils.initMemory = function (game, memory) {
+        var strategy = [];
+        var tactic = [];
+        var formations = {};
+        var idleCreeps = [];
+        var scheduledCreeps = {};
+        var spawningCreeps = {};
+        for (var spawnName in game.spawns) {
+            var spawn = game.spawns[spawnName];
+            var sourceId = spawn.pos.findClosestByPath(FIND_SOURCES).id;
+            var createHarvestorTask = {
+                spawnName: spawnName,
+                sourceId: sourceId,
+                typeName: CreateHarvestorTaskOps.typeName
+            };
+            strategy.push(createHarvestorTask);
         }
-        var creepMemory = {
-            spawnId: spawn.id,
-            defaultBehavior: cbdMover,
-            actionOverride: Queue.emptyQueueData()
+        memory.centralMemory = {
+            strategy: strategy,
+            tactic: tactic,
+            formations: formations,
+            idleCreeps: idleCreeps,
+            scheduledCreeps: scheduledCreeps,
+            spawningCreeps: spawningCreeps,
+            uniqueCounter: 10
         };
-        var res = spawn.createCreep(body, null, creepMemory);
-        return (typeof res !== 'number');
+        for (var spawnName in game.spawns) {
+            game.spawns[spawnName].memory = {
+                tacticQueue: Queue.emptyQueueData(),
+                strategyQueue: Queue.emptyQueueData()
+            };
+        }
     };
-    ;
-    CBOWorker.prototype.work = function (creep) {
-        log.debug("CBMover.work");
-        var memory = creep.memory.defaultBehavior;
-        var from = Game.getObjectById(memory.fromId);
-        var to = Game.getObjectById(memory.toId);
-        if (isAdjacent(creep.pos, to.pos) && creep.carry.energy > 0) {
-            creep.transfer(to, RESOURCE_ENERGY);
-        }
-        else if (creep.carry.energy == creep.carryCapacity) {
-            creep.moveTo(to.pos);
-        }
-        else if (isAdjacent(creep.pos, from.pos)) {
-            this.take(creep, from);
-        }
-        else
-            creep.moveTo(from.pos);
+    //initialize memory if required
+    MemoryUtils.update = function (game, memory) {
+        if (!memory.centralMemory)
+            MemoryUtils.initMemory(game, memory);
+        MemoryUtils.processSpawnedCreeps(game, memory);
     };
-    ;
-    CBOWorker.prototype.take = function (taker, giver) {
-        if (giver.owner && giver.owner.username && giver.owner.username != taker.owner.username) {
-            //enemy structure, nothing to take.
-            log.debug(taker.name + " cannot take from an enemy unit.");
+    MemoryUtils.uniqueNumber = function (memory) {
+        return ++memory.centralMemory.uniqueCounter;
+    };
+    MemoryUtils.processSpawnedCreeps = function (game, memory) {
+        var spawningCreeps = memory.centralMemory.spawningCreeps;
+        var spawnedCreeps = [];
+        for (var creepName in spawningCreeps) {
+            if (!(typeof game.creeps[creepName] === "undefined") && game.creeps[creepName].spawning == false) {
+                spawnedCreeps.push(creepName);
+            }
+        }
+        for (var sc = 0; sc < spawnedCreeps.length; ++sc) {
+            var cn = spawnedCreeps[sc];
+            delete spawningCreeps[cn];
+        }
+    };
+    return MemoryUtils;
+})();
+//==============================================================================
+var SpawnUtils = (function () {
+    function SpawnUtils() {
+    }
+    //process spawn in main loop
+    //extracts from tacticQueue or strategyQueue (in that order), and schedules it
+    SpawnUtils.process = function (spawn, game, memory) {
+        //check which queue to pick from
+        var buildQueue = new Queue(spawn.memory.tacticQueue);
+        if (buildQueue.length() == 0)
+            buildQueue = new Queue(spawn.memory.strategyQueue);
+        if (buildQueue.length() == 0)
             return;
+        //attempt to build the topmost one
+        var top = buildQueue.top();
+        var result = spawn.createCreep(top.body, top.name, top.memory);
+        //if attempt was successful, remove it from build queue
+        if (result == top.name) {
+            buildQueue.pop();
+            var scheduledCreeps = memory.centralMemory.scheduledCreeps;
+            if (scheduledCreeps[top.name]) {
+                delete scheduledCreeps[top.name];
+            }
+            memory.centralMemory.spawningCreeps[top.name] = spawn.name;
         }
-        else if (giver instanceof Source) {
-            //energy source
-            var giverSource = giver;
-            log.debug(taker.name + " is harvesting from source " + giverSource.name);
-            taker.harvest(giver);
-        }
-        else if (giver instanceof Creep) {
-            //creep
-            var giverCreep = giver;
-            log.debug(giverCreep.name + " is transferring to " + taker.name);
-            giverCreep.transfer(taker, RESOURCE_ENERGY);
+    };
+    SpawnUtils.schedule = function (spawn, creep, memory) {
+        new Queue(spawn.memory.strategyQueue).push(creep);
+        memory.centralMemory.scheduledCreeps[creep.name] = spawn.name;
+    };
+    return SpawnUtils;
+})();
+//==============================================================================
+var CreepUtils = (function () {
+    function CreepUtils() {
+    }
+    CreepUtils.isDead = function (name, game, memory) {
+        return !CreepUtils.isFunctional(name, game) && !CreepUtils.isScheduled(name, memory) && !CreepUtils.isSpawning(name, memory);
+    };
+    CreepUtils.isFunctional = function (name, game) {
+        return !(typeof game.creeps[name] === "undefined");
+    };
+    CreepUtils.isScheduled = function (name, memory) {
+        return !(typeof memory.centralMemory.scheduledCreeps[name] === "undefined");
+    };
+    CreepUtils.isSpawning = function (name, memory) {
+        return !(typeof memory.centralMemory.spawningCreeps[name] === "undefined");
+    };
+    CreepUtils.take = function (creep, object, objectType) {
+        var src = object;
+        if (creep.pos.isNearTo(src.pos.x, src.pos.y)) {
+            var transfer = CreepUtils.transferDispatch.get()[objectType + "->Creep"];
+            if (typeof transfer === "undefined")
+                creep.say("Unable to take energy from type " + objectType);
+            else
+                transfer(src, creep);
         }
         else {
-            log.debug(taker.name + "");
+            creep.moveTo(object);
         }
     };
-    ;
-    CBOWorker.prototype.give = function (giver, taker) {
-        if (taker.owner && taker.owner.username && taker.owner.username != giver.owner.username) {
-            //enemy structure, nothing to do
+    CreepUtils.give = function (creep, object, objectType) {
+        var tgt = object;
+        if (creep.pos.isNearTo(tgt.pos.x, tgt.pos.y)) {
+            var transfer = CreepUtils.transferDispatch.get()["Creep->" + objectType];
+            if (typeof transfer === "undefined")
+                creep.say("Unable to give enerty to type " + objectType);
+            else
+                transfer(creep, tgt);
+        }
+        else {
+            creep.moveTo(object);
+        }
+    };
+    CreepUtils.createHarvestorData = function (energy, memory) {
+        var body = CreepUtils.createBody([MOVE, CARRY, WORK], [WORK, MOVE,
+            CARRY, WORK, WORK, MOVE,
+            CARRY, WORK, WORK, MOVE,
+            CARRY, WORK, WORK, MOVE,
+            CARRY, WORK, WORK, MOVE
+        ], energy);
+        var name = "Creep" + MemoryUtils.uniqueNumber(memory);
+        var creepMemory = {
+            typeName: "Harvester",
+            formation: ""
+        };
+        return {
+            name: name,
+            body: body,
+            memory: creepMemory
+        };
+    };
+    CreepUtils.createBody = function (minimumBody, addOns, energy) {
+        var result = [];
+        var remainingEnergy = energy;
+        for (var mbi = 0; mbi < minimumBody.length; ++mbi) {
+            remainingEnergy = remainingEnergy - CreepUtils.getBodyCost(minimumBody[mbi]);
+            if (remainingEnergy < 0) {
+                throw "Energy " + energy + " is sufficient for only first " + mbi + " parts in minimumBody " + JSON.stringify(minimumBody);
+            }
+            result.push(minimumBody[mbi]);
+        }
+        for (var aoi = 0; aoi < addOns.length; ++aoi) {
+            remainingEnergy = remainingEnergy - CreepUtils.getBodyCost(addOns[aoi]);
+            if (remainingEnergy < 0)
+                return result;
+            result.push(addOns[aoi]);
+        }
+        return result;
+    };
+    CreepUtils.getBodyCost = function (bodyType) {
+        var result = CreepUtils.bodyCosts.get()[bodyType.toString().valueOf()];
+        if (typeof result === "undefined") {
+            log.error("Could not find cost for body type " + bodyType.toString());
+            return 0;
+        }
+        return result;
+    };
+    CreepUtils.transferDispatch = new LazyValue(function () {
+        var res = {};
+        var creepTransfer = function (src, tgt) { src.transfer(tgt, RESOURCE_ENERGY); };
+        res["Creep->Creep"] = creepTransfer;
+        res["Creep->Spawn"] = creepTransfer;
+        res["Source->Creep"] = function (src, tgt) { tgt.harvest(src); };
+        return res;
+    });
+    CreepUtils.bodyCosts = new LazyValue(function () {
+        var bodyTypesAndCosts = [
+            { v1: MOVE, v2: 50 },
+            { v1: WORK, v2: 100 },
+            { v1: CARRY, v2: 50 },
+            { v1: ATTACK, v2: 80 },
+            { v1: RANGED_ATTACK, v2: 150 },
+            { v1: HEAL, v2: 250 },
+            { v1: CLAIM, v2: 600 },
+            { v1: TOUGH, v2: 10 }
+        ];
+        var result = {};
+        for (var i = 0; i < bodyTypesAndCosts.length; ++i) {
+            result[bodyTypesAndCosts[i].v1.toString().valueOf()] = bodyTypesAndCosts[i].v2;
+        }
+        return result;
+    });
+    return CreepUtils;
+})();
+var SupplyChainOps = {
+    typeName: "SupplyChain",
+    createSupplyChain: function (creeps, sources, destination, spawn, game, memory) {
+        var creepNames = [];
+        var supplyChainName = "SupplyChain" + MemoryUtils.uniqueNumber(memory);
+        for (var i = 0; i < creeps.length; ++i) {
+            creeps[i].memory.formation = supplyChainName;
+            creepNames.push(creeps[i].name);
+            SpawnUtils.schedule(spawn, creeps[i], memory);
+        }
+        var supplyChain = {
+            name: supplyChainName,
+            typeName: "SupplyChain",
+            creeps: creepNames,
+            sources: Queue.createFromArray(sources),
+            destination: destination
+        };
+        memory.centralMemory.formations[supplyChainName] = supplyChain;
+        return true;
+    },
+    execute: function (formation, game, memory) {
+        var supplyChain = formation;
+        //remove all dead creeps from supplyChain
+        supplyChain.creeps = ArrayUtils.filter(supplyChain.creeps, function (nm) { return !CreepUtils.isDead(nm, game, memory); });
+        //delete supplyChain if all creeps have died
+        if (supplyChain.creeps.length == 0) {
+            log.warn("Deleting formation " + formation.name + " because all creeps have died!");
+            delete memory.centralMemory.formations[formation.name];
             return;
         }
-        else if (taker instanceof ConstructionSite) {
-            //construction site
-            var takerConstructionSite = taker;
-            if (takerConstructionSite.progress < takerConstructionSite.progressTotal) {
-                log.debug(giver.name + " is building " + takerConstructionSite.structureType);
-                giver.build(takerConstructionSite);
+        //find all functional creeps (already spawned)
+        var creeps = ArrayUtils.filter(supplyChain.creeps, function (nm) { return CreepUtils.isFunctional(nm, game); });
+        //nothing to do if no function creeps
+        if (creeps.length == 0)
+            return;
+        var sources = new Queue(supplyChain.sources);
+        for (var creepIdx = 0; creepIdx < creeps.length; ++creepIdx) {
+            var creep = game.creeps[creeps[creepIdx]];
+            if (creepIdx == 0
+                && sources.length() > 0
+                && creep.carry.energy < creep.carryCapacity) {
+                //first creep needs to cycle through sources untill it's full.
+                var nextSource = sources.top();
+                CreepUtils.take(creep, game.getObjectById(nextSource.id), nextSource.typeName);
+                if (creep.pos.isNearTo(nextSource.x, nextSource.y)) {
+                    //if it's next to this source then cycle it to the back of the queue
+                    sources.pop();
+                    sources.push(nextSource);
+                }
+            }
+            else if (creep.carry.energy < creep.carryCapacity) {
+                //creep is not full, go to it's source
+                var source = null;
+                var sourceType = null;
+                if (creepIdx == 0) {
+                    //first creep: extract from source
+                    //guaranteed only one source due to previous if condition
+                    var sources = new Queue(supplyChain.sources);
+                    source = game.getObjectById(sources.top().id);
+                    sourceType = sources.top().typeName;
+                }
+                else {
+                    //source is previous creep
+                    source = game.creeps[creeps[creepIdx - 1]];
+                    sourceType = "Creep";
+                }
+                CreepUtils.take(creep, source, sourceType);
             }
             else {
-                log.debug(giver.name + " has finished building " + takerConstructionSite.structureType);
-                return unimplemented("Idle behavior for creeps.");
+                //creep is full: go to it's target
+                var target = null;
+                var targetType = null;
+                if (creepIdx == creeps.length - 1) {
+                    //last creep: target is destination
+                    target = game.getObjectById(supplyChain.destination.id);
+                    targetType = supplyChain.destination.typeName;
+                }
+                else {
+                    //target is next creep
+                    target = game.creeps[creeps[creepIdx + 1]];
+                    targetType = "Creep";
+                }
+                CreepUtils.give(creep, target, targetType);
             }
         }
-        else if (taker instanceof Structure) {
-            var takerStructure = taker;
-            if (takerStructure.hits < takerStructure.hitsMax - 70) {
-                //structure in need of repair
-                giver.repair(takerStructure);
-            }
-            else if (GameRules.canTakeEnergy(taker.structureType)) {
-                //transfer to tower/spawn etc...
-                giver.transfer(taker, RESOURCE_ENERGY);
-            }
-            else if (taker.structureType == STRUCTURE_CONTROLLER) {
-                giver.upgradeController(taker);
-            }
+    }
+};
+//==============================================================================
+var FormationUtils = (function () {
+    function FormationUtils() {
+    }
+    //Do whatever the formation needs to do
+    FormationUtils.execute = function (formation, game, memory) {
+        FormationUtils.dispatch.get()[formation.typeName].execute(formation, game, memory);
+    };
+    //Get a FormationOps for a given formation type
+    //usage: FormationUtils.dispatch.get()[typeName]
+    FormationUtils.dispatch = new LazyValue(function () {
+        var allOps = [SupplyChainOps];
+        var result = {};
+        for (var i = 0; i < allOps.length; ++i) {
+            result[allOps[i].typeName] = allOps[i];
         }
-        else if (taker instanceof Spawn) {
-            var takerSpawn = taker;
-            giver.transfer(takerSpawn, RESOURCE_ENERGY);
+        return result;
+    });
+    return FormationUtils;
+})();
+//==============================================================================
+var CreateHarvestorTaskOps = {
+    typeName: "CreateHarvestorTask",
+    schedule: function (task, game, memory) {
+        var feTask = task;
+        var spawn = game.spawns[feTask.spawnName];
+        if (typeof spawn === "undefined") {
+            log.error("CreateHarvestorTask: Unable to find spawn " + feTask.spawnName);
+            return false;
+        }
+        var creepBuildData = CreepUtils.createHarvestorData(spawn.room.energyCapacityAvailable, memory);
+        var source = game.getObjectById(feTask.sourceId);
+        var sourceEndPoint = {
+            typeName: "Source",
+            id: source.id,
+            x: source.pos.x,
+            y: source.pos.y
+        };
+        var destinationEndPoint = {
+            typeName: "Spawn",
+            id: spawn.id,
+            x: spawn.pos.x,
+            y: spawn.pos.y
+        };
+        return SupplyChainOps.createSupplyChain([creepBuildData], [sourceEndPoint], destinationEndPoint, spawn, game, memory);
+    }
+};
+//==============================================================================
+var TaskUtils = (function () {
+    function TaskUtils() {
+    }
+    TaskUtils.schedule = function (t, game, memory) {
+        var ops = TaskUtils.dispatch.get()[t.typeName];
+        if (typeof ops === "undefined") {
+            log.error("Could not find TaskOps for task type " + t.typeName);
+            return false;
+        }
+        return ops.schedule(t, game, memory);
+    };
+    TaskUtils.dispatch = new LazyValue(function () {
+        var allOps = [CreateHarvestorTaskOps];
+        var result = {};
+        for (var i = 0; i < allOps.length; ++i) {
+            result[allOps[i].typeName] = allOps[i];
+        }
+        return result;
+    });
+    return TaskUtils;
+})();
+//==============================================================================
+var StrategyUtils = (function () {
+    function StrategyUtils() {
+    }
+    StrategyUtils.process = function (game, memory) {
+        var processTask = function (t) { return !TaskUtils.schedule(t, game, memory); };
+        if (memory.centralMemory.tactic.length > 0) {
+            memory.centralMemory.tactic = ArrayUtils.filter(memory.centralMemory.tactic, processTask);
         }
         else {
-            log.debug(giver.name + " doesn't know what to do with target");
-            return unimplemented("nothing to do with structure");
+            memory.centralMemory.strategy = ArrayUtils.filter(memory.centralMemory.strategy, processTask);
         }
     };
-    ;
-    return CBOWorker;
+    return StrategyUtils;
 })();
-;
-//==============================================================================
-var CreepBehavior = (function () {
-    function CreepBehavior(creep_, data_) {
-        this.data = data_;
-        this.ops = CreepBehavior.getOps(data_);
-        this.creep = creep_;
-    }
-    CreepBehavior.prototype.work = function () {
-        this.ops.work(this.creep);
-    };
-    CreepBehavior.getOps = function (data) {
-        return CreepBehavior[data.createdType.toString()];
-    };
-    CreepBehavior.createCreep = function (data, spawn) {
-        return CreepBehavior.getOps(data).create(spawn, data);
-    };
-    CreepBehavior.mover = new CBOWorker();
-    return CreepBehavior;
-})();
-;
-//==============================================================================
-var getSpawnFromName = function (name) {
-    return Game.spawns[name];
-};
-//==============================================================================
-var GameRules = {
-    createBodyTypeCosts: function () {
-        var BODY_TYPE_COSTS = {};
-        BODY_TYPE_COSTS[MOVE.toString()] = 50;
-        BODY_TYPE_COSTS[WORK.toString()] = 100;
-        BODY_TYPE_COSTS[CARRY.toString()] = 50;
-        BODY_TYPE_COSTS[ATTACK.toString()] = 80;
-        BODY_TYPE_COSTS[RANGED_ATTACK.toString()] = 150;
-        BODY_TYPE_COSTS[HEAL.toString()] = 250;
-        BODY_TYPE_COSTS[TOUGH.toString()] = 10;
-        return BODY_TYPE_COSTS;
-    },
-    canTakeEnergy: function (structureType) {
-        var trueTypes = [STRUCTURE_EXTENSION, STRUCTURE_SPAWN, STRUCTURE_LINK, STRUCTURE_TOWER, STRUCTURE_STORAGE];
-        for (var i = 0; i < trueTypes.length; ++i) {
-            if (trueTypes[i] == structureType)
-                return true;
-        }
-        return false;
-    }
-};
-//==============================================================================
-var centralCommand = function () {
-    log.debug("centralCommand");
-    if (!Memory.centralMemory) {
-        Memory.centralMemory = {
-            idleSpawnNames: Queue.emptyQueueData(),
-            ageingCreeps: Queue.emptyQueueData()
-        };
-        log.info("Initialized Memory.centralMemory.");
-        Memory.bodyTypeCosts = GameRules.createBodyTypeCosts();
-    }
-    var memory = Memory.centralMemory;
-    var idleSpawnQueue = new Queue(memory.idleSpawnNames);
-    for (var i = 0; i < Game.gcl.level && idleSpawnQueue.length() > 0; ++i) {
-        var idleSpawnName = idleSpawnQueue.pop();
-        var idleSpawn = getSpawnFromName(idleSpawnName);
-        var buildQueue = new Queue(idleSpawn.memory.buildQueue);
-        var source = idleSpawn.pos.findClosestByRange(FIND_SOURCES_ACTIVE);
-        log.info("Added mover to spawn " + idleSpawnName + ".");
-        buildQueue.push(new CBDWorker(source.id, idleSpawn.id));
-    }
-};
-//==============================================================================
-var processSpawn = function (spawn) {
-    log.debug("processSpawn");
-    if (!spawn.memory.buildQueue) {
-        spawn.memory = {
-            buildQueue: Queue.emptyQueueData()
-        };
-        log.info("Initialized " + spawn.name + ".memory.");
-    }
-    if (spawn.spawning != null)
-        return;
-    var memory = spawn.memory;
-    var buildQueue = new Queue(memory.buildQueue);
-    var nextBuild = buildQueue.top();
-    if (nextBuild == null) {
-        if (spawn.energy == spawn.energyCapacity) {
-            log.info("Spawn " + spawn.name + " registered as idle.");
-            (new Queue(Memory.centralMemory.idleSpawnNames)).push(spawn.name);
-        }
-        return;
-    }
-    if (CreepBehavior.createCreep(nextBuild, spawn)) {
-        log.info("Created creep in spawn " + spawn.name);
-        buildQueue.pop();
-    }
-    else {
-        log.warn("Failed to create creep in spawn " + spawn.name + ".");
-    }
-};
-//==============================================================================
-var processCreep = function (creep) {
-    log.debug("Processing creep " + creep.name + ".");
-    commonCreepWork(creep);
-    var actionOverrideQueue = new Queue(creep.memory.actionOverride);
-    if (actionOverrideQueue.length() > 0) {
-        log.info("Creep " + creep.name + " working on action override " +
-            actionOverride.createdType + ".");
-        var actionOverride = actionOverrideQueue.pop();
-        creepActions.work(creep, actionOverride);
-        return;
-    }
-    else {
-        (new CreepBehavior(creep, creep.memory.defaultBehavior)).work();
-    }
-};
 //==============================================================================
 module.exports.loop = function () {
     log.debug("Main");
-    centralCommand();
-    for (var spawnId in Game.spawns) {
-        var spawn = Game.spawns[spawnId];
-        processSpawn(spawn);
+    //Analyse the current situation
+    MemoryUtils.update(Game, Memory);
+    StrategyUtils.process(Game, Memory);
+    for (var spawnName in Game.spawns) {
+        var spawn = Game.spawns[spawnName];
+        SpawnUtils.process(spawn, Game, Memory);
     }
-    for (var creepId in Game.creeps) {
-        var creep = Game.creeps[creepId];
-        processCreep(creep);
+    for (var formationName in Memory.centralMemory.formations) {
+        var formation = Memory.centralMemory.formations[formationName];
+        FormationUtils.execute(formation, Game, Memory);
     }
 };
 //==============================================================================

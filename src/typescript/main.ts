@@ -6,16 +6,29 @@ var log = {
     ERROR: 5,
 
     //vvvvvvvvv
-    CURRENT: 4,
+    CURRENT: 3,
     //^^^^^^^^^
 
     print: function(msg: String, level: number) {
-        if (level >= this.CURRENT) console.log(msg);
+        if (level >= this.CURRENT) console.log("[" + log.levelString(level) + "]:\t" + msg);
     },
     debug: function(msg: String) { this.print(msg, this.DEBUG); },
     info: function(msg: String) { this.print(msg, this.INFO); },
     warn: function(msg: String) { this.print(msg, this.WARN); },
-    error: function(msg: String) { this.print(msg, this.ERROR); }
+    error: function(msg: String) { this.print(msg, this.ERROR); },
+
+    levelString: function(level: number): String {
+        if (level <= log.DEBUG)
+            return "DEBUG";
+        else if (level == log.INFO)
+            return "INFO";
+        else if (level == log.WARN)
+            return "WARN";
+        else if (level == log.ERROR)
+            return "ERROR";
+        else
+            return level.toString();
+    }
 }
 
 //====================================================================
@@ -32,6 +45,95 @@ class Pair<T1, T2> {
     handleEither<Ret>(f1: ((T1) => Ret), f2: ((T2) => Ret)): Ret {
         if (this.data.v1 == null) return f2(this.data.v2);
         else return (f1(this.data.v1));
+    }
+}
+
+//====================================================================
+class ArrayUtils {
+    static foreach<TElem>(array: Array<TElem>, func: (TElem) => void): void {
+        for (var elemi = 0; elemi < array.length; ++elemi) {
+            func(array[elemi]);
+        }
+    }
+    static find<TElem>(array: Array<TElem>, func: (TElem) => boolean): Option<TElem> {
+        for (var elemi = 0; elemi < array.length; ++elemi) {
+            if (func(array[elemi]))
+                return OptionUtils.some<TElem>(array[elemi]);
+        }
+        return OptionUtils.none<TElem>();
+    }
+    static findOrThrow<TElem>(
+        array: Array<TElem>, 
+        func: (TElem) => boolean,
+            errorMsg: String
+    ): TElem 
+    {
+        var resOpt = ArrayUtils.find<TElem>(array, func);
+        return OptionUtils.getOrThrow(resOpt, errorMsg);
+    }
+    static map<TInput, TOutput>(
+        input: Array<TInput>,
+        func: (TInput) => TOutput
+    ): Array<TOutput>
+    {
+        var result: Array<TOutput> = [];
+        for (var i = 0; i < input.length; ++i)
+        result.push(func(input[i]));
+        return result;
+    }
+
+    static sum(input: Array<number>): number {
+        var result = 0;
+        for (var i = 0; i < input.length; ++i)
+        result = result + input[i];
+        return result;
+    }
+
+    static filter<TElem>(input: Array<TElem>, f: (TElem) => boolean): Array<TElem> {
+        var result: Array<TElem> = [];
+        for( var i = 0; i < input.length; ++i ) {
+            if(f(input[i]))
+                result.push(input[i]);
+        }
+        return result;
+    }
+
+    static toStringDictionary<TValue>(keys: Array<string>, values: Array<TValue>): StringDictionary<TValue> {
+        var result: StringDictionary<TValue> = { };
+        for (var i = 0; i < keys.length && i < values.length; ++i) {
+            result[keys[i]] = values[i];
+        }
+        return result;
+    }
+}
+
+//==============================================================================
+class LazyValue<TValue>{
+    memo: Option<TValue>;
+    creator: () => TValue;
+    constructor(creator: () => TValue) {
+        this.memo = OptionUtils.none<TValue>();
+        this.creator = creator;
+    }
+    get(): TValue {
+        if (!this.memo.isDefined) {
+            this.memo = OptionUtils.some<TValue>(this.creator());
+        }
+        return this.memo.get;
+    }
+}
+
+
+//==============================================================================
+class OptionUtils{
+    public static some<TElem>(value: TElem): Option<TElem> { return {isDefined: true,  get: value}; };
+    public static none<TElem>()            : Option<TElem> { return {isDefined: false, get: null }; };
+    public static getOrThrow<TElem>(
+        opt: Option<TElem>,
+        errMsg: String
+    ): TElem {
+        if (opt.isDefined) return opt.get;
+        else throw errMsg;
     }
 }
 
@@ -55,13 +157,13 @@ class BTree<TKey, TValue> {
         this.data = _data;
         this.klt = _klt;
     }
-    
+
     kgt(l: TKey, r: TKey): boolean { return this.klt(r, l); }
     keq(l: TKey, r: TKey): boolean { return (!this.klt(l, r) && !this.klt(r, l)); }
     kleq(l: TKey, r: TKey): boolean { return !this.klt(r, l); }
     kgeq(l: TKey, r: TKey): boolean { return !this.klt(l, r); }
     kneq(l: TKey, r: TKey): boolean { return (this.klt(l, r) || this.klt(r, l)); }
-    
+
     find(key: TKey): Option<BTreeValueData<TKey, TValue>> {
         if (this.data.isEmpty)
             return { isDefined: false, get: null };
@@ -75,10 +177,11 @@ class BTree<TKey, TValue> {
             this.data.children.length > vi,
             "Non leaf BTree has " +
                 this.data.values.length + " values but " +
-                this.data.children.length + " children.")
-            return new BTree<TKey, TValue>(this.data.children[vi], this.klt).find(key);
+                this.data.children.length + " children."
+        );
+        return new BTree<TKey, TValue>(this.data.children[vi], this.klt).find(key);
     }
-    
+
     insertOrUpdate(key: TKey, value: TValue, priority: number): void {
         if (this.data.isEmpty) {
             this.data.isLeaf = true;
@@ -187,23 +290,24 @@ class BTree<TKey, TValue> {
             assert(
                 this.data.values.length > 1, 
                 "Non-root leaf should have more than one element (found: " + this.data.values.length + ")");
-            var deletedValue: Option<BTreeValueData<TKey, TValue>> = { isDefined: false, get: null };
-            for (var i = 0; i < this.data.values.length; ++i) {
-                if (this.keq(this.data.values[i].key, key)) {
-                    deletedValue = { isDefined: true, get: this.data.values[i] };
-                    this.data.values.splice(i, 1);
-                    BTree.refreshDerivedProperties<TKey, TValue>(this.data);
+                var deletedValue: Option<BTreeValueData<TKey, TValue>> = { isDefined: false, get: null };
+                for (var i = 0; i < this.data.values.length; ++i) {
+                    if (this.keq(this.data.values[i].key, key)) {
+                        deletedValue = { isDefined: true, get: this.data.values[i] };
+                        this.data.values.splice(i, 1);
+                        BTree.refreshDerivedProperties<TKey, TValue>(this.data);
+                    }
                 }
-            }
-            return {
-                deletedValue: deletedValue,
-                balancingResult: this.splitIfRequired()
-            };
+                return {
+                    deletedValue: deletedValue,
+                    balancingResult: this.splitIfRequired()
+                };
         }
         var demotedIndex: number;
         for (demotedIndex = 0; demotedIndex < this.data.values.length - 1 && this.klt(this.data.values[demotedIndex].key, key); ++demotedIndex) 
         {
-           //nothing in for loop 
+            //the required operations get triggered in the condition
+            //so nothing in for loop body
         }
         var demotedValue = this.data.values[demotedIndex];
         var left = this.data.children[demotedIndex];
@@ -423,275 +527,490 @@ class Queue<TElement>{
     static emptyQueue<TElement>(): Queue<TElement> {
         return new Queue<TElement>(Queue.emptyQueueData<TElement>());
     }
-}
-
-//==============================================================================
-interface CreepBehaviorOps {
-    create(spawn: Spawn, data: CreepBehaviorData): boolean;
-    work(creep: Creep): void;
-}
-
-//==============================================================================
-interface CreepAction {
-    work(creep: Creep, data: CreepActionData): void;
-}
-//==============================================================================
-var creepActions = {
-    get: function(name: String): CreepAction {
-        return <CreepAction>this[<any>name];
-    },
-    work: function(creep: Creep, actionData: CreepActionData): void {
-        this.get(actionData.createdType).work(creep, actionData);
-    }
-}
-
-//==============================================================================
-var isAdjacent = function(pos1: RoomPosition, pos2: RoomPosition): boolean {
-    if (pos1.roomName != pos2.roomName)
-        return false;
-    var delX = Math.abs(pos1.x - pos2.x);
-    var delY = Math.abs(pos1.y - pos2.y);
-    return (delX <= 1 && delY <= 1 && delX + delY > 0);
-}
-
-//==============================================================================
-var commonCreepWork = function(creep: Creep) {
-    if (creep.ticksToLive == 5)
-        (new Queue<String>(Memory.centralMemory.ageingCreeps)).push(creep.id);
-};
-
-//==============================================================================
-class CBDWorker implements CreepBehaviorData {
-    fromId: String;
-    toId: String;
-    createdType: String;
-    resourceType: String;
-    constructor(fromId_: String, toId_: String) {
-        this.fromId = fromId_;
-        this.toId = toId_;
-        this.createdType = CBDWorker.className;
-    }
-    static className: String = "CBDMover";
-};
-class CBOWorker implements CreepBehaviorOps {
-    create(spawn: Spawn, data: CreepBehaviorData): boolean {
-        log.debug("CBMover.create");
-        var cbdMover = <CBDWorker>data;
-        var energy = spawn.energy;
-        if (energy < 200) return false;
-        var body = [MOVE, CARRY, WORK];
-        energy = energy - 200;
-        while (energy >= 100) {
-            body.push(WORK);
-            energy = energy - 100;
+    static createFromArray<TElement>(input: Array<TElement>): QueueData<TElement> {
+        return {
+            popArray: [],
+            pushArray: input
         }
-        var creepMemory: CreepMemory = {
-            spawnId: spawn.id,
-            defaultBehavior: cbdMover,
-            actionOverride: Queue.emptyQueueData<CreepActionData>()
-        };
-        var res = spawn.createCreep(body, null, creepMemory);
-        return (typeof res !== 'number');
-    };
-    work(creep: Creep): void {
-        log.debug("CBMover.work");
-        var memory = <CBDWorker>creep.memory.defaultBehavior;
-        var from = <Structure>Game.getObjectById(memory.fromId);
-        var to = <Structure>Game.getObjectById(memory.toId);
-        if (isAdjacent(creep.pos, to.pos) && creep.carry.energy > 0) {
-            creep.transfer(to, RESOURCE_ENERGY);
-        } else if (creep.carry.energy == creep.carryCapacity) {
-            creep.moveTo(to.pos);
-        } else if (isAdjacent(creep.pos, from.pos)) {
-            this.take(creep, from);
-        } else
-            creep.moveTo(from.pos);
-    };
-    take(taker: Creep, giver: any): void {
-        if (giver.owner && giver.owner.username && giver.owner.username != taker.owner.username) {
-            //enemy structure, nothing to take.
-            log.debug(taker.name + " cannot take from an enemy unit.")
+    }
+}
+
+//==============================================================================
+class MemoryUtils {
+    static initMemory(game: IGame, memory: IMemory): void {
+        var strategy: Array<Task> = [];
+        var tactic: Array<Task> = [];
+        var formations: StringDictionary<Formation> = {};
+        var idleCreeps: Array<string> = [];
+        var scheduledCreeps: StringDictionary<string> = {};
+        var spawningCreeps: StringDictionary<string> = {};
+        for (var spawnName in game.spawns) {
+            var spawn = game.spawns[spawnName];
+            var sourceId = (<Source>spawn.pos.findClosestByPath(FIND_SOURCES)).id;
+            var createHarvestorTask: CreateHarvestorTask = {
+                spawnName: spawnName,
+                sourceId: sourceId,
+                typeName: CreateHarvestorTaskOps.typeName
+            };
+            strategy.push(createHarvestorTask);
+        }
+        memory.centralMemory = {
+            strategy: strategy,
+            tactic: tactic,
+            formations: formations,
+            idleCreeps: idleCreeps,
+            scheduledCreeps: scheduledCreeps,
+            spawningCreeps: spawningCreeps,
+            uniqueCounter: 10
+        }
+
+        for (var spawnName in game.spawns) {
+            game.spawns[spawnName].memory = {
+                tacticQueue: Queue.emptyQueueData<CreepBuildData>(),
+                strategyQueue: Queue.emptyQueueData<CreepBuildData>()
+            }
+        }
+    }
+    //initialize memory if required
+    static update(game: IGame, memory: IMemory): void {
+        if (!memory.centralMemory) MemoryUtils.initMemory(game, memory);
+        MemoryUtils.processSpawnedCreeps(game, memory);
+    }
+    static uniqueNumber(memory: IMemory): number {
+        return ++memory.centralMemory.uniqueCounter;
+    }
+    static processSpawnedCreeps(game: IGame, memory: IMemory): void {
+        var spawningCreeps = memory.centralMemory.spawningCreeps;
+        var spawnedCreeps: Array<string> = [];
+        for (var creepName in spawningCreeps) {
+            if (!(typeof game.creeps[creepName] === "undefined") && game.creeps[creepName].spawning == false) {
+                spawnedCreeps.push(creepName);
+            }
+        }
+        for (var sc = 0; sc < spawnedCreeps.length; ++sc) {
+            var cn = spawnedCreeps[sc];
+            delete spawningCreeps[cn];
+        }
+    }
+}
+
+//==============================================================================
+class SpawnUtils {
+    //process spawn in main loop
+    //extracts from tacticQueue or strategyQueue (in that order), and schedules it
+    static process(spawn: Spawn, game: IGame, memory: IMemory): void {
+        //check which queue to pick from
+        var buildQueue = new Queue<CreepBuildData>(spawn.memory.tacticQueue);
+        if (buildQueue.length() == 0)
+            buildQueue = new Queue<CreepBuildData>(spawn.memory.strategyQueue);
+        if (buildQueue.length() == 0)
             return;
-        } else if (giver instanceof Source) {
-            //energy source
-            var giverSource = <Source>giver;
-            log.debug(taker.name + " is harvesting from source " + giverSource.name);
-            taker.harvest(<Source>giver);
-        } else if (giver instanceof Creep) {
-            //creep
-            var giverCreep = <Creep>giver;
-            log.debug(giverCreep.name + " is transferring to " + taker.name);
-            giverCreep.transfer(taker, RESOURCE_ENERGY);
-        } else {
-            log.debug(taker.name + "")
-        }
-    };
-    give(giver: Creep, taker: any): void {
-        if (taker.owner && taker.owner.username && taker.owner.username != giver.owner.username) {
-            //enemy structure, nothing to do
-            return;
-        } else if (taker instanceof ConstructionSite) {
-            //construction site
-            var takerConstructionSite = <ConstructionSite>taker;
-            if (takerConstructionSite.progress < takerConstructionSite.progressTotal) {
-                log.debug(giver.name + " is building " + takerConstructionSite.structureType);
-                giver.build(takerConstructionSite);
-            }
-            else {
-                log.debug(giver.name + " has finished building " + takerConstructionSite.structureType);
-                return unimplemented("Idle behavior for creeps.");
-            }
-        } else if (taker instanceof Structure) {
-            var takerStructure = <Structure>taker;
-            if (takerStructure.hits < takerStructure.hitsMax - 70) {
-                //structure in need of repair
-                giver.repair(takerStructure);
-            } else if (GameRules.canTakeEnergy(taker.structureType)) {
-                //transfer to tower/spawn etc...
-                giver.transfer(taker, RESOURCE_ENERGY);
-            } else if (taker.structureType == STRUCTURE_CONTROLLER) {
-                giver.upgradeController(<Controller>taker);
-            }
-        } else if (taker instanceof Spawn) {
-            var takerSpawn = <Spawn>taker;
-            giver.transfer(takerSpawn, RESOURCE_ENERGY);
-        } else {
-            log.debug(giver.name + " doesn't know what to do with target");
-            return unimplemented("nothing to do with structure");
-        }
-    };
-};
 
-//==============================================================================
-class CreepBehavior {
-    data: CreepBehaviorData;
-    ops: CreepBehaviorOps;
-    creep: Creep;
-    constructor(creep_: Creep, data_: CreepBehaviorData) {
-        this.data = data_;
-        this.ops = CreepBehavior.getOps(data_);
-        this.creep = creep_;
-    }
-    work(): void {
-        this.ops.work(this.creep);
-    }
-    static getOps(data: CreepBehaviorData): CreepBehaviorOps {
-        return CreepBehavior[data.createdType.toString()];
-    }
-    static createCreep(data: CreepBehaviorData, spawn: Spawn): boolean {
-        return CreepBehavior.getOps(data).create(spawn, data);
-    }
-    static mover: CreepBehaviorOps = new CBOWorker();
-};
+        //attempt to build the topmost one
+        var top: CreepBuildData = buildQueue.top();
+        var result = spawn.createCreep( top.body, top.name, top.memory );
 
-//==============================================================================
-var getSpawnFromName = function(name: String): Spawn {
-    return <Spawn>Game.spawns[<any>name];
+        //if attempt was successful, remove it from build queue
+        if (result == top.name) {
+            buildQueue.pop();
+            var scheduledCreeps = memory.centralMemory.scheduledCreeps;
+            if (scheduledCreeps[top.name]) {
+                delete scheduledCreeps[top.name];
+            }
+            memory.centralMemory.spawningCreeps[top.name] = spawn.name;
+        }
+    }
+
+    static schedule(spawn: Spawn, creep: CreepBuildData, memory: IMemory): void {
+        new Queue<CreepBuildData>(spawn.memory.strategyQueue).push(creep);
+        memory.centralMemory.scheduledCreeps[creep.name] = spawn.name;
+    }
 }
 
 //==============================================================================
-var GameRules = {
-    createBodyTypeCosts: function(): StringToNumber {
-        var BODY_TYPE_COSTS = <StringToNumber>{};
-        BODY_TYPE_COSTS[MOVE.toString()] = 50;
-        BODY_TYPE_COSTS[WORK.toString()] = 100;
-        BODY_TYPE_COSTS[CARRY.toString()] = 50;
-        BODY_TYPE_COSTS[ATTACK.toString()] = 80;
-        BODY_TYPE_COSTS[RANGED_ATTACK.toString()] = 150;
-        BODY_TYPE_COSTS[HEAL.toString()] = 250;
-        BODY_TYPE_COSTS[TOUGH.toString()] = 10;
-        return BODY_TYPE_COSTS;
+class CreepUtils {
+    public static isDead(name: string, game: IGame, memory: IMemory): boolean {
+        return !CreepUtils.isFunctional(name, game) && !CreepUtils.isScheduled(name, memory) && !CreepUtils.isSpawning(name, memory);
+    }
+    public static isFunctional(name: string, game: IGame): boolean {
+        return !(typeof game.creeps[name] === "undefined");
+    }
+    public static isScheduled(name: string, memory: IMemory): boolean {
+        return !(typeof memory.centralMemory.scheduledCreeps[name] === "undefined");
+    }
+    public static isSpawning(name: string, memory: IMemory): boolean {
+        return !(typeof memory.centralMemory.spawningCreeps[name] === "undefined");
+    }
+
+
+    static take(creep: Creep, object: any, objectType: string): void {
+        var src = <HasPosition>object;
+        if (creep.pos.isNearTo(src.pos.x, src.pos.y)) {
+            var transfer = CreepUtils.transferDispatch.get()[objectType + "->Creep"];
+            if (typeof transfer === "undefined")
+                creep.say("Unable to take energy from type " + objectType);
+            else
+                transfer(src, creep);
+        } else {
+            creep.moveTo(object);
+        }
+    }
+
+    static give(creep: Creep, object: any, objectType: string): void {
+        var tgt = <HasPosition>object;
+        if (creep.pos.isNearTo(tgt.pos.x, tgt.pos.y)) {
+            var transfer = CreepUtils.transferDispatch.get()["Creep->" + objectType];
+            if (typeof transfer === "undefined")
+                creep.say("Unable to give enerty to type " + objectType);
+            else
+                transfer(creep, tgt);
+        } else {
+            creep.moveTo(object);
+        }
+    }
+
+    static transferDispatch = new LazyValue<StringDictionary<(src: any, tgt: any) => void>>(
+        function() {
+            var res: StringDictionary<(src: any, tgt: any) => void> = {};
+            var creepTransfer = function(src: any, tgt: any) { (<Creep>src).transfer(tgt, RESOURCE_ENERGY); };
+            res["Creep->Creep"] = creepTransfer; 
+            res["Creep->Spawn"] = creepTransfer;
+            res["Source->Creep"] = function(src: any, tgt: any) { (<Creep>tgt).harvest(<Source>src); };
+            return res;
+        }
+    );
+
+    static createHarvestorData(energy: number, memory: IMemory): CreepBuildData {
+        var body = CreepUtils.createBody(
+            [MOVE, CARRY, WORK],
+            [WORK, MOVE, 
+                CARRY, WORK, WORK, MOVE, 
+                CARRY, WORK, WORK, MOVE, 
+                CARRY, WORK, WORK, MOVE,
+                CARRY, WORK, WORK, MOVE
+            ],
+            energy
+        );
+        var name = "Creep" + MemoryUtils.uniqueNumber(memory);
+        var creepMemory: CreepMemory = { 
+            typeName: "Harvester",
+            formation: "" 
+        };
+        return <CreepBuildData>{
+            name: name,
+            body: body,
+            memory: creepMemory
+        };
+    }
+
+    static createBody(
+        minimumBody: Array<BODY_TYPE>,
+        addOns: Array<BODY_TYPE>,
+        energy: number
+    ): Array<BODY_TYPE> {
+        var result: Array<BODY_TYPE> = [];
+        var remainingEnergy = energy;
+        for (var mbi = 0; mbi < minimumBody.length; ++mbi) {
+            remainingEnergy = remainingEnergy - CreepUtils.getBodyCost(minimumBody[mbi]);
+            if (remainingEnergy < 0) {
+                throw "Energy " + energy + " is sufficient for only first " + mbi + " parts in minimumBody " + JSON.stringify(minimumBody);
+            }
+            result.push(minimumBody[mbi]);
+        }
+        for (var aoi = 0; aoi < addOns.length; ++aoi) {
+            remainingEnergy = remainingEnergy - CreepUtils.getBodyCost(addOns[aoi]);
+            if (remainingEnergy < 0)
+                return result;
+            result.push(addOns[aoi]);
+        }
+        return result;
+    }
+
+    static getBodyCost(bodyType: BODY_TYPE): number {
+        var result = CreepUtils.bodyCosts.get()[bodyType.toString().valueOf()];
+        if (typeof result === "undefined") {
+            log.error("Could not find cost for body type " + bodyType.toString());
+            return 0;
+        }
+        return result;
+    }
+
+    static bodyCosts = new LazyValue<StringDictionary<number>>(
+        function(): StringDictionary<number> {
+            var bodyTypesAndCosts: Array<PairData<BODY_TYPE, number>> = [
+                {v1: MOVE,          v2: 50},
+                {v1: WORK,          v2: 100},
+                {v1: CARRY,         v2: 50},
+                {v1: ATTACK,        v2: 80},
+                {v1: RANGED_ATTACK, v2: 150},
+                {v1: HEAL,          v2: 250},
+                {v1: CLAIM,         v2: 600},
+                {v1: TOUGH,         v2: 10}
+            ];
+            var result: StringDictionary<number> = {};
+            for (var i = 0; i < bodyTypesAndCosts.length; ++i) {
+                result[bodyTypesAndCosts[i].v1.toString().valueOf()] = bodyTypesAndCosts[i].v2;
+            }
+            return result;
+        }
+    );
+}
+
+//==============================================================================
+interface FormationOps {
+    typeName: string;
+    execute(formation: Formation, game: IGame, memory: IMemory): void;
+}
+
+//==============================================================================
+interface SupplyEndPoint {
+    typeName: string;
+    id: string;
+    x: number;
+    y: number;
+}
+
+interface SupplyChain extends Formation {
+    sources: QueueData<SupplyEndPoint>;
+    destination: SupplyEndPoint;
+}
+
+interface ISupplyChainOps extends FormationOps {
+    createSupplyChain(
+        creeps: Array<CreepBuildData>,
+        sources: Array<SupplyEndPoint>, 
+        destination: SupplyEndPoint,
+        spawn: Spawn,
+        game: IGame,
+        memory: IMemory
+    ): boolean;
+}
+
+var SupplyChainOps: ISupplyChainOps = {
+    typeName: "SupplyChain",
+    createSupplyChain(
+        creeps: Array<CreepBuildData>,
+        sources: Array<SupplyEndPoint>,
+        destination: SupplyEndPoint,
+        spawn: Spawn,
+        game: IGame,
+        memory: IMemory
+    ): boolean { 
+        var creepNames: Array<string> = [];
+        var supplyChainName: string = "SupplyChain" + MemoryUtils.uniqueNumber(memory);
+        for (var i = 0; i < creeps.length; ++i) {
+            creeps[i].memory.formation = supplyChainName;
+            creepNames.push(creeps[i].name);
+            SpawnUtils.schedule(spawn, creeps[i], memory);
+        }
+        var supplyChain: SupplyChain = {
+            name: supplyChainName,
+            typeName: "SupplyChain",
+            creeps: creepNames,
+            sources: Queue.createFromArray<SupplyEndPoint>(sources),
+            destination: destination
+        };
+        memory.centralMemory.formations[supplyChainName] = supplyChain;
+        return true;
     },
-    canTakeEnergy: function(structureType: STRUCTURE_TYPE): boolean {
-        var trueTypes: Array<STRUCTURE_TYPE> = [STRUCTURE_EXTENSION, STRUCTURE_SPAWN, STRUCTURE_LINK, STRUCTURE_TOWER, STRUCTURE_STORAGE];
-        for (var i = 0; i < trueTypes.length; ++i) {
-            if (trueTypes[i] == structureType)
-                return true;
+    execute(formation: Formation, game: IGame, memory: IMemory): void {
+        var supplyChain = <SupplyChain>formation;
+        //remove all dead creeps from supplyChain
+        supplyChain.creeps = ArrayUtils.filter<string>(
+            supplyChain.creeps, 
+            function(nm: string) { return !CreepUtils.isDead(nm, game, memory); }
+        );
+
+        //delete supplyChain if all creeps have died
+        if (supplyChain.creeps.length == 0) {
+            log.warn("Deleting formation " + formation.name + " because all creeps have died!");
+            delete memory.centralMemory.formations[formation.name];
+            return;
         }
-        return false;
-    }
-}
 
-//==============================================================================
-var centralCommand = function() {
-    log.debug("centralCommand");
-    if (!Memory.centralMemory) {
-        Memory.centralMemory = {
-            idleSpawnNames: Queue.emptyQueueData<String>(),
-            ageingCreeps: Queue.emptyQueueData<String>()
-        };
-        log.info("Initialized Memory.centralMemory.");
-        Memory.bodyTypeCosts = GameRules.createBodyTypeCosts();
-    }
-    var memory = Memory.centralMemory;
-    var idleSpawnQueue = new Queue<String>(memory.idleSpawnNames);
-    for (var i: number = 0; i < Game.gcl.level && idleSpawnQueue.length() > 0; ++i) {
-        var idleSpawnName = idleSpawnQueue.pop();
-        var idleSpawn = getSpawnFromName(idleSpawnName);
-        var buildQueue = new Queue<CreepBehaviorData>(idleSpawn.memory.buildQueue);
-        var source = idleSpawn.pos.findClosestByRange(FIND_SOURCES_ACTIVE);
-        log.info("Added mover to spawn " + idleSpawnName + ".");
-        buildQueue.push(new CBDWorker(source.id, idleSpawn.id));
-    }
-}
+        //find all functional creeps (already spawned)
+        var creeps = ArrayUtils.filter<string>(
+            supplyChain.creeps, 
+            function(nm: string) { return CreepUtils.isFunctional(nm, game); }
+        );
 
-//==============================================================================
-var processSpawn = function(spawn: Spawn): void {
-    log.debug("processSpawn");
-    if (!spawn.memory.buildQueue) {
-        spawn.memory = {
-            buildQueue: Queue.emptyQueueData<CreepBehaviorData>()
-        };
-        log.info("Initialized " + spawn.name + ".memory.");
-    }
-    if (spawn.spawning != null) return;
-    var memory = spawn.memory;
-    var buildQueue = new Queue<CreepBehaviorData>(memory.buildQueue);
-    var nextBuild = buildQueue.top();
-    if (nextBuild == null) {
-        if (spawn.energy == spawn.energyCapacity) {
-            log.info("Spawn " + spawn.name + " registered as idle.");
-            (new Queue<String>(Memory.centralMemory.idleSpawnNames)).push(spawn.name);
+        //nothing to do if no function creeps
+        if (creeps.length == 0) return;
+        var sources = new Queue<SupplyEndPoint>(supplyChain.sources);
+        for (var creepIdx = 0; creepIdx < creeps.length; ++creepIdx) {
+            var creep: Creep = game.creeps[creeps[creepIdx]];
+            if (creepIdx == 0
+                && sources.length() > 0 
+            && creep.carry.energy < creep.carryCapacity ) {
+                //first creep needs to cycle through sources untill it's full.
+                var nextSource = sources.top();
+                CreepUtils.take(creep, game.getObjectById(nextSource.id), nextSource.typeName);
+                if (creep.pos.isNearTo(nextSource.x, nextSource.y)) {
+                    //if it's next to this source then cycle it to the back of the queue
+                    sources.pop();
+                    sources.push(nextSource);
+                }
+            } else if (creep.carry.energy < creep.carryCapacity) {
+                //creep is not full, go to it's source
+                var source: any = null;
+                var sourceType: string = null;
+                if (creepIdx == 0) {
+                    //first creep: extract from source
+                    //guaranteed only one source due to previous if condition
+                    var sources = new Queue<SupplyEndPoint>(supplyChain.sources);
+                    source = game.getObjectById(sources.top().id);
+                    sourceType = sources.top().typeName;
+                } else {
+                    //source is previous creep
+                    source = game.creeps[creeps[creepIdx - 1]];
+                    sourceType = "Creep";
+                }
+                CreepUtils.take(creep, source, sourceType);
+            } else {
+                //creep is full: go to it's target
+                var target: any = null;
+                var targetType: string = null;
+                if (creepIdx == creeps.length - 1) {
+                    //last creep: target is destination
+                    target = game.getObjectById(supplyChain.destination.id);
+                    targetType = supplyChain.destination.typeName;
+                } else {
+                    //target is next creep
+                    target = game.creeps[creeps[creepIdx + 1]];
+                    targetType = "Creep";
+                }
+                CreepUtils.give(creep, target, targetType);
+            }
         }
-        return;
-    }
-    if (CreepBehavior.createCreep(nextBuild, spawn)) {
-        log.info("Created creep in spawn " + spawn.name);
-        buildQueue.pop();
-    } else {
-        log.warn("Failed to create creep in spawn " + spawn.name + ".");
     }
 }
 
 //==============================================================================
-var processCreep = function(creep: Creep): void {
-    log.debug("Processing creep " + creep.name + ".");
-    commonCreepWork(creep);
-    var actionOverrideQueue = new Queue<CreepActionData>(creep.memory.actionOverride);
-    if (actionOverrideQueue.length() > 0) {
-        log.info("Creep " + creep.name + " working on action override " +
-                 actionOverride.createdType + ".");
-        var actionOverride = actionOverrideQueue.pop();
-        creepActions.work(creep, actionOverride);
-        return;
-    } else {
-        (new CreepBehavior(creep, creep.memory.defaultBehavior)).work();
+class FormationUtils {
+    //Do whatever the formation needs to do
+    static execute(formation: Formation, game: IGame, memory: IMemory): void {
+        FormationUtils.dispatch.get()[formation.typeName].execute(formation, game, memory);
+    }
+
+    //Get a FormationOps for a given formation type
+    //usage: FormationUtils.dispatch.get()[typeName]
+    static dispatch = new LazyValue<StringDictionary<FormationOps>>(
+        function() {
+            var allOps: Array<FormationOps> = [SupplyChainOps];
+            var result: StringDictionary<FormationOps> = {};
+            for( var i = 0; i < allOps.length; ++i ) {
+                result[allOps[i].typeName] = allOps[i];
+            }
+            return result;
+        }
+    );
+}
+
+//==============================================================================
+interface CreateHarvestorTask extends Task {
+    spawnName: string;
+    sourceId: string;
+}
+
+//==============================================================================
+var CreateHarvestorTaskOps: TaskOps = {
+    typeName: "CreateHarvestorTask",
+    schedule(task: Task, game: IGame, memory:IMemory): boolean {
+        var feTask = <CreateHarvestorTask>task;
+        var spawn = game.spawns[feTask.spawnName];
+        if (typeof spawn === "undefined") {
+            log.error("CreateHarvestorTask: Unable to find spawn " + feTask.spawnName);
+            return false;
+        }
+        var creepBuildData = CreepUtils.createHarvestorData(spawn.room.energyCapacityAvailable, memory);
+        var source = <Source>game.getObjectById(feTask.sourceId);
+        var sourceEndPoint: SupplyEndPoint = {
+            typeName: "Source",
+            id: source.id,
+            x: source.pos.x,
+            y: source.pos.y
+        };
+        var destinationEndPoint: SupplyEndPoint = {
+            typeName: "Spawn",
+            id: spawn.id,
+            x: spawn.pos.x,
+            y: spawn.pos.y
+        }
+        return SupplyChainOps.createSupplyChain(
+            [creepBuildData],
+            [sourceEndPoint],
+            destinationEndPoint,
+            spawn,
+            game,
+            memory
+        );
+    }
+}
+
+//==============================================================================
+interface TaskOps {
+    typeName: string;
+    schedule(task: Task, game: IGame, memory: IMemory): boolean;
+}
+
+//==============================================================================
+class TaskUtils {
+    static schedule(t: Task, game: IGame, memory: IMemory): boolean {
+        var ops: TaskOps = TaskUtils.dispatch.get()[t.typeName];
+        if (typeof ops === "undefined") {
+            log.error("Could not find TaskOps for task type " + t.typeName);
+            return false;
+        }
+        return ops.schedule(t, game, memory);
+    }
+    
+    static dispatch = new LazyValue<StringDictionary<TaskOps>>(
+        function(): StringDictionary<TaskOps> {
+            var allOps = [CreateHarvestorTaskOps];
+            var result: StringDictionary<TaskOps> = {};
+            for (var i = 0; i < allOps.length; ++i) {
+                result[allOps[i].typeName] = allOps[i];
+            }
+            return result;
+        }
+    );
+}
+
+//==============================================================================
+class StrategyUtils {
+    static process(game: IGame, memory: IMemory): void {
+        var processTask = function(t: Task): boolean { return !TaskUtils.schedule(t, game, memory); }
+        if (memory.centralMemory.tactic.length > 0) {
+            memory.centralMemory.tactic = ArrayUtils.filter<Task>(
+                memory.centralMemory.tactic,
+                processTask
+            );
+        } else {
+            memory.centralMemory.strategy = ArrayUtils.filter<Task>(
+                memory.centralMemory.strategy,
+                processTask
+            );
+        }
     }
 }
 
 //==============================================================================
 module.exports.loop = function() {
     log.debug("Main");
-    centralCommand();
 
-    for (var spawnId in Game.spawns) {
-        var spawn: Spawn = Game.spawns[spawnId];
-        processSpawn(spawn);
+    //Analyse the current situation
+    MemoryUtils.update(Game, Memory);
+
+    StrategyUtils.process(Game, Memory);
+    
+    for (var spawnName in Game.spawns) {
+        var spawn = Game.spawns[spawnName];
+        SpawnUtils.process(spawn, Game, Memory);
     }
 
-    for (var creepId in Game.creeps) {
-        var creep: Creep = Game.creeps[creepId];
-        processCreep(creep);
+    for (var formationName in Memory.centralMemory.formations) {
+        var formation = Memory.centralMemory.formations[formationName];
+        FormationUtils.execute(formation, Game, Memory);
     }
 };
 
@@ -776,7 +1095,7 @@ var tests = {
                 }
             }
         }
-        
+
         btree = new BTree<String, number>(<BTreeData<String, number>>JSON.parse(JSON.stringify(btree.data)), lt);
 
         for (var i = 4; i < 40; i += 4) {
@@ -802,7 +1121,7 @@ var tests = {
                 }
             }
         }
-        
+
         btree = new BTree<String, number>(<BTreeData<String, number>>JSON.parse(JSON.stringify(btree.data)), lt);
 
         for (var i = 1; i < 20; ++i) {
@@ -818,7 +1137,7 @@ var tests = {
         btree.remove("0");
         assert(btree.isWellFormed(), "BTree shouldbe well formed after removing all elements");
         assert(btree.isEmpty(), "Btree should have isEmpty after removing all elements.");
-       
+
     }
 }
 

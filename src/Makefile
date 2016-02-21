@@ -11,3 +11,6 @@ publish:    build test
 
 clean:
 	rm -f javascript/*.js
+
+tags:	typescript/*.ts
+	ctags typescript/*.ts
