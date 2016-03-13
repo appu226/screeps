@@ -572,9 +572,9 @@ class MemoryUtils {
         }
     }
     //initialize memory if required
-    static update(game: IGame, memory: IMemory): void {
-        if (!memory.centralMemory) MemoryUtils.initMemory(game, memory);
-        MemoryUtils.processSpawnedCreeps(game, memory);
+    static update(context: Context): void {
+        if (!context.memory.centralMemory) MemoryUtils.initMemory(context.game, context.memory);
+        MemoryUtils.processSpawnedCreeps(context.game, context.memory);
     }
     static uniqueNumber(memory: IMemory): number {
         return ++memory.centralMemory.uniqueCounter;
@@ -598,7 +598,7 @@ class MemoryUtils {
 class SpawnUtils {
     //process spawn in main loop
     //extracts from tacticQueue or strategyQueue (in that order), and schedules it
-    static process(spawn: Spawn, game: IGame, memory: IMemory): void {
+    static process(spawn: Spawn, context: Context): void {
         //check which queue to pick from
         var buildQueue = new Queue<CreepBuildData>(spawn.memory.tacticQueue);
         if (buildQueue.length() == 0)
@@ -613,11 +613,11 @@ class SpawnUtils {
         //if attempt was successful, remove it from build queue
         if (result == top.name) {
             buildQueue.pop();
-            var scheduledCreeps = memory.centralMemory.scheduledCreeps;
+            var scheduledCreeps = context.memory.centralMemory.scheduledCreeps;
             if (scheduledCreeps[top.name]) {
                 delete scheduledCreeps[top.name];
             }
-            memory.centralMemory.spawningCreeps[top.name] = spawn.name;
+            context.memory.centralMemory.spawningCreeps[top.name] = spawn.name;
         }
     }
 
@@ -759,7 +759,7 @@ class CreepUtils {
 //==============================================================================
 interface FormationOps {
     typeName: string;
-    execute(formation: Formation, game: IGame, memory: IMemory): void;
+    execute(formation: Formation, context: Context): void;
 }
 
 //==============================================================================
@@ -781,8 +781,7 @@ interface ISupplyChainOps extends FormationOps {
         sources: Array<SupplyEndPoint>, 
         destination: SupplyEndPoint,
         spawn: Spawn,
-        game: IGame,
-        memory: IMemory
+        context: Context
     ): boolean;
 }
 
@@ -793,15 +792,14 @@ var SupplyChainOps: ISupplyChainOps = {
         sources: Array<SupplyEndPoint>,
         destination: SupplyEndPoint,
         spawn: Spawn,
-        game: IGame,
-        memory: IMemory
+        context: Context
     ): boolean { 
         var creepNames: Array<string> = [];
-        var supplyChainName: string = "SupplyChain" + MemoryUtils.uniqueNumber(memory);
+        var supplyChainName: string = "SupplyChain" + MemoryUtils.uniqueNumber(context.memory);
         for (var i = 0; i < creeps.length; ++i) {
             creeps[i].memory.formation = supplyChainName;
             creepNames.push(creeps[i].name);
-            SpawnUtils.schedule(spawn, creeps[i], memory);
+            SpawnUtils.schedule(spawn, creeps[i], context.memory);
         }
         var supplyChain: SupplyChain = {
             name: supplyChainName,
@@ -810,41 +808,41 @@ var SupplyChainOps: ISupplyChainOps = {
             sources: Queue.createFromArray<SupplyEndPoint>(sources),
             destination: destination
         };
-        memory.centralMemory.formations[supplyChainName] = supplyChain;
+        context.memory.centralMemory.formations[supplyChainName] = supplyChain;
         return true;
     },
-    execute(formation: Formation, game: IGame, memory: IMemory): void {
+    execute(formation: Formation, context: Context): void {
         var supplyChain = <SupplyChain>formation;
         //remove all dead creeps from supplyChain
         supplyChain.creeps = ArrayUtils.filter<string>(
             supplyChain.creeps, 
-            function(nm: string) { return !CreepUtils.isDead(nm, game, memory); }
+            function(nm: string) { return !CreepUtils.isDead(nm, context.game, context.memory); }
         );
 
         //delete supplyChain if all creeps have died
         if (supplyChain.creeps.length == 0) {
             log.warn("Deleting formation " + formation.name + " because all creeps have died!");
-            delete memory.centralMemory.formations[formation.name];
+            delete context.memory.centralMemory.formations[formation.name];
             return;
         }
 
         //find all functional creeps (already spawned)
         var creeps = ArrayUtils.filter<string>(
             supplyChain.creeps, 
-            function(nm: string) { return CreepUtils.isFunctional(nm, game); }
+            function(nm: string) { return CreepUtils.isFunctional(nm, context.game); }
         );
 
         //nothing to do if no function creeps
         if (creeps.length == 0) return;
         var sources = new Queue<SupplyEndPoint>(supplyChain.sources);
         for (var creepIdx = 0; creepIdx < creeps.length; ++creepIdx) {
-            var creep: Creep = game.creeps[creeps[creepIdx]];
+            var creep: Creep = context.game.creeps[creeps[creepIdx]];
             if (creepIdx == 0
                 && sources.length() > 0 
             && creep.carry.energy < creep.carryCapacity ) {
                 //first creep needs to cycle through sources untill it's full.
                 var nextSource = sources.top();
-                CreepUtils.take(creep, game.getObjectById(nextSource.id), nextSource.typeName);
+                CreepUtils.take(creep, context.game.getObjectById(nextSource.id), nextSource.typeName);
                 if (creep.pos.isNearTo(nextSource.x, nextSource.y)) {
                     //if it's next to this source then cycle it to the back of the queue
                     sources.pop();
@@ -858,11 +856,11 @@ var SupplyChainOps: ISupplyChainOps = {
                     //first creep: extract from source
                     //guaranteed only one source due to previous if condition
                     var sources = new Queue<SupplyEndPoint>(supplyChain.sources);
-                    source = game.getObjectById(sources.top().id);
+                    source = context.game.getObjectById(sources.top().id);
                     sourceType = sources.top().typeName;
                 } else {
                     //source is previous creep
-                    source = game.creeps[creeps[creepIdx - 1]];
+                    source = context.game.creeps[creeps[creepIdx - 1]];
                     sourceType = "Creep";
                 }
                 CreepUtils.take(creep, source, sourceType);
@@ -872,11 +870,11 @@ var SupplyChainOps: ISupplyChainOps = {
                 var targetType: string = null;
                 if (creepIdx == creeps.length - 1) {
                     //last creep: target is destination
-                    target = game.getObjectById(supplyChain.destination.id);
+                    target = context.game.getObjectById(supplyChain.destination.id);
                     targetType = supplyChain.destination.typeName;
                 } else {
                     //target is next creep
-                    target = game.creeps[creeps[creepIdx + 1]];
+                    target = context.game.creeps[creeps[creepIdx + 1]];
                     targetType = "Creep";
                 }
                 CreepUtils.give(creep, target, targetType);
@@ -888,8 +886,8 @@ var SupplyChainOps: ISupplyChainOps = {
 //==============================================================================
 class FormationUtils {
     //Do whatever the formation needs to do
-    static execute(formation: Formation, game: IGame, memory: IMemory): void {
-        FormationUtils.dispatch.get()[formation.typeName].execute(formation, game, memory);
+    static execute(formation: Formation, context: Context): void {
+        FormationUtils.dispatch.get()[formation.typeName].execute(formation, context);
     }
 
     //Get a FormationOps for a given formation type
@@ -915,15 +913,15 @@ interface CreateHarvestorTask extends Task {
 //==============================================================================
 var CreateHarvestorTaskOps: TaskOps = {
     typeName: "CreateHarvestorTask",
-    schedule(task: Task, game: IGame, memory:IMemory): boolean {
+    schedule(task: Task, context: Context): boolean {
         var feTask = <CreateHarvestorTask>task;
-        var spawn = game.spawns[feTask.spawnName];
+        var spawn = context.game.spawns[feTask.spawnName];
         if (typeof spawn === "undefined") {
             log.error("CreateHarvestorTask: Unable to find spawn " + feTask.spawnName);
             return false;
         }
-        var creepBuildData = CreepUtils.createHarvestorData(spawn.room.energyCapacityAvailable, memory);
-        var source = <Source>game.getObjectById(feTask.sourceId);
+        var creepBuildData = CreepUtils.createHarvestorData(spawn.room.energyCapacityAvailable, context.memory);
+        var source = <Source>context.game.getObjectById(feTask.sourceId);
         var sourceEndPoint: SupplyEndPoint = {
             typeName: "Source",
             id: source.id,
@@ -941,8 +939,7 @@ var CreateHarvestorTaskOps: TaskOps = {
             [sourceEndPoint],
             destinationEndPoint,
             spawn,
-            game,
-            memory
+            context
         );
     }
 }
@@ -950,18 +947,18 @@ var CreateHarvestorTaskOps: TaskOps = {
 //==============================================================================
 interface TaskOps {
     typeName: string;
-    schedule(task: Task, game: IGame, memory: IMemory): boolean;
+    schedule(task: Task, context: Context): boolean;
 }
 
 //==============================================================================
 class TaskUtils {
-    static schedule(t: Task, game: IGame, memory: IMemory): boolean {
+    static schedule(t: Task, context: Context): boolean {
         var ops: TaskOps = TaskUtils.dispatch.get()[t.typeName];
         if (typeof ops === "undefined") {
             log.error("Could not find TaskOps for task type " + t.typeName);
             return false;
         }
-        return ops.schedule(t, game, memory);
+        return ops.schedule(t, context);
     }
     
     static dispatch = new LazyValue<StringDictionary<TaskOps>>(
@@ -978,8 +975,9 @@ class TaskUtils {
 
 //==============================================================================
 class StrategyUtils {
-    static process(game: IGame, memory: IMemory): void {
-        var processTask = function(t: Task): boolean { return !TaskUtils.schedule(t, game, memory); }
+    static process(context: Context): void {
+        var processTask = function(t: Task): boolean { return !TaskUtils.schedule(t, context); }
+        var memory: IMemory = context.memory;
         if (memory.centralMemory.tactic.length > 0) {
             memory.centralMemory.tactic = ArrayUtils.filter<Task>(
                 memory.centralMemory.tactic,
@@ -995,22 +993,41 @@ class StrategyUtils {
 }
 
 //==============================================================================
+interface CleanUp {
+    apply(): void;
+}
+
+//==============================================================================
+interface Context {
+    game: IGame;
+    memory: IMemory;
+    cleanUps: Array<CleanUp>;
+}
+
+//==============================================================================
 module.exports.loop = function() {
     log.debug("Main");
 
-    //Analyse the current situation
-    MemoryUtils.update(Game, Memory);
+    var cleanUps: Array<CleanUp> = [];
+    var context: Context = { game: Game, memory: Memory, cleanUps: cleanUps };
 
-    StrategyUtils.process(Game, Memory);
+    //Analyse the current situation
+    MemoryUtils.update(context);
+
+    StrategyUtils.process(context);
     
     for (var spawnName in Game.spawns) {
         var spawn = Game.spawns[spawnName];
-        SpawnUtils.process(spawn, Game, Memory);
+        SpawnUtils.process(spawn, context);
     }
 
     for (var formationName in Memory.centralMemory.formations) {
         var formation = Memory.centralMemory.formations[formationName];
-        FormationUtils.execute(formation, Game, Memory);
+        FormationUtils.execute(formation, context);
+    }
+
+    for( var i = 0; i < cleanUps.length; ++i ) {
+        cleanUps[i].apply();
     }
 };
 
