@@ -161,6 +161,21 @@ interface RoomPosition {
     findClosestByPath: (type: FIND_CONSTANT, opts?: any) => any;
 
     /**
+     * Find all objects in the specified linear range.
+     * Arguments
+     *   type: FIND_CONSTANT
+     *     See Room.find.
+     *   range: number
+     *     The range distance.
+     *   opts: (optional) object
+     *     See Room.find.
+     * 
+     * Return value
+     *   An array with the objects found.
+     */
+    findInRange: (type: FIND_CONSTANT, range: number, opts?: { filter: any } ) => Array<any>;
+
+    /**
      * Find an optimal path to the specified position using A* search algorithm. 
      *   This method is a shorthand for Room.findPath. 
      *   If the target is in another room, then the corresponding exit will be used as a target.
@@ -225,6 +240,16 @@ interface Room {
      * Total amount of energyCapacity of all spawns and extensions in the room.
      */
     energyCapacityAvailable: number;
+
+    /**
+     * Find all objects of the specified type in the room.
+     *
+     * opts (optional) object
+     *   An object with additional options:
+     *     filter:  object, function, string
+     *       The result list will be filtered using the Lodash.filter method.
+     */
+    find: ( type: FIND_CONSTANT, opts?: { filter: any } ) => Array<any>;
 }
 
 interface Spawn extends HasPosition {
@@ -436,6 +461,7 @@ interface IGame {
         progressTotal: number;
     };
     getObjectById: (id: string) => any;
+    rooms: StringDictionary<Room>;
     spawns: StringDictionary<Spawn>;
 }
 

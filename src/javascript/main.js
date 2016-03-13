@@ -503,16 +503,7 @@ var MemoryUtils = (function () {
         var idleCreeps = [];
         var scheduledCreeps = {};
         var spawningCreeps = {};
-        for (var spawnName in game.spawns) {
-            var spawn = game.spawns[spawnName];
-            var sourceId = spawn.pos.findClosestByPath(FIND_SOURCES).id;
-            var createHarvestorTask = {
-                spawnName: spawnName,
-                sourceId: sourceId,
-                typeName: CreateHarvestorTaskOps.typeName
-            };
-            strategy.push(createHarvestorTask);
-        }
+        strategy.push({ typeName: "ScanEndPointsTask" });
         memory.centralMemory = {
             strategy: strategy,
             tactic: tactic,
@@ -806,6 +797,49 @@ var FormationUtils = (function () {
     return FormationUtils;
 })();
 //==============================================================================
+var ScanEndPointsTaskOps = {
+    typeName: "ScanEndPointsTask",
+    schedule: function (task, context) {
+        for (var roomName in context.game.rooms) {
+            //For every room
+            var room = context.game.rooms[roomName];
+            var allSources = room.find(FIND_SOURCES_ACTIVE);
+            for (var isrc = 0; isrc < allSources.length; ++isrc) {
+                //for every source in that room
+                var source = allSources[isrc];
+                //skip sources with KeeperLairs in range
+                var isLair = function (s) {
+                    return s.structureType === STRUCTURE_KEEPER_LAIR;
+                };
+                var lairsInRange = source.pos.findInRange(FIND_STRUCTURES, 5, { filter: isLair });
+                if (lairsInRange.length > 0) {
+                    break;
+                }
+                //Find closest spawn to the source
+                var isSpawn = function (s) {
+                    return s.structureType === STRUCTURE_SPAWN;
+                };
+                var closestSpawn = source.pos.findClosestByPath(FIND_MY_STRUCTURES, { filter: isSpawn });
+                if (closestSpawn == null || closestSpawn.pos.roomName !== source.pos.roomName)
+                    break;
+                //create a supplyChain from source to spawn
+                context.cleanUps.push({
+                    apply: function () {
+                        context.memory.centralMemory.strategy.push({
+                            typeName: "CreateHarvestorTask",
+                            spawnName: this.spawnName,
+                            sourceId: this.sourceId
+                        });
+                    },
+                    spawnName: closestSpawn.name,
+                    sourceId: source.id
+                });
+            }
+        }
+        return true;
+    }
+};
+//==============================================================================
 var CreateHarvestorTaskOps = {
     typeName: "CreateHarvestorTask",
     schedule: function (task, context) {
@@ -845,7 +879,7 @@ var TaskUtils = (function () {
         return ops.schedule(t, context);
     };
     TaskUtils.dispatch = new LazyValue(function () {
-        var allOps = [CreateHarvestorTaskOps];
+        var allOps = [CreateHarvestorTaskOps, ScanEndPointsTaskOps];
         var result = {};
         for (var i = 0; i < allOps.length; ++i) {
             result[allOps[i].typeName] = allOps[i];
