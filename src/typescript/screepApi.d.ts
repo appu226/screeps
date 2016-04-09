@@ -250,6 +250,12 @@ interface Room {
      *       The result list will be filtered using the Lodash.filter method.
      */
     find: ( type: FIND_CONSTANT, opts?: { filter: any } ) => Array<any>;
+
+    /**
+     * Get an object with the given type at the specified room position
+     * http://screeps.wikia.com/wiki/LookAt
+     */
+    lookForAt: ( type: string, x: number, y: number ) => Array<any>;
 }
 
 interface Spawn extends HasPosition {
@@ -357,6 +363,11 @@ interface Creep extends HasPosition, CreepOrStructure {
      * The total amount of resources the creep can carry.
      */
     carryCapacity: number;
+
+    /**
+     * Get the quantity of live body parts of the given type. Fully damaged parts do not count.
+     */
+    getActiveBodyParts: ( body_type: BODY_TYPE ) => number;
     
     /**
      * Harvest energy from the source. 
@@ -440,6 +451,16 @@ interface Creep extends HasPosition, CreepOrStructure {
 
 
 interface Source extends Structure {
+
+    /**
+     * The remaining amount of energy.
+     */
+    energy: number;
+
+    /**
+     * The total amount of energy in the source.
+     */
+    energyCapacity: number;
     
 }
 
@@ -531,7 +552,6 @@ interface Task {
 interface Formation {
     name: string;
     typeName: string;
-    creeps: Array<string>;
 }
 
 interface CentralMemory {

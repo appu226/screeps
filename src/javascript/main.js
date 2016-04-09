@@ -92,8 +92,42 @@ var ArrayUtils = (function () {
         }
         return result;
     };
+    ArrayUtils.append = function (a1, a2) {
+        var result = [];
+        for (var i = 0; i < a1.length; ++i) {
+            result.push(a1[i]);
+        }
+        for (var i = 0; i < a2.length; ++i) {
+            result.push(a2[i]);
+        }
+        return result;
+    };
+    ArrayUtils.exists = function (input, f) {
+        for (var i = 0; i < input.length; ++i) {
+            if (f(input[i]))
+                return true;
+        }
+        return false;
+    };
     return ArrayUtils;
 })();
+//==============================================================================
+// do a binary search to find the smallest number in (lo, hi] for which check returns true
+// assumes that check(lo) == false and check(hi) == true and lo + 1 <= hi
+// and that there is an answer k such that 
+//    lo < k <= hi
+//    and check( i ) == false for all i such that lo <= i < k
+//    and check( i ) == true for all i such that k <= i < hi
+var firstTrueBinarySearch = function (lo, hi, check) {
+    assert(lo + 1 <= hi, "Assumptions for binary search not satisfied");
+    if (hi == lo + 1)
+        return hi;
+    var mid = Math.floor((lo + hi) / 2);
+    if (check(mid))
+        return firstTrueBinarySearch(lo, mid, check);
+    else
+        return firstTrueBinarySearch(mid, hi, check);
+};
 //==============================================================================
 var LazyValue = (function () {
     function LazyValue(creator) {
@@ -592,30 +626,40 @@ var CreepUtils = (function () {
     CreepUtils.isSpawning = function (name, memory) {
         return !(typeof memory.centralMemory.spawningCreeps[name] === "undefined");
     };
+    // returns true iff no more energy can be taken after this turn
     CreepUtils.take = function (creep, object, objectType) {
         var src = object;
         if (creep.pos.isNearTo(src.pos.x, src.pos.y)) {
             var transfer = CreepUtils.transferDispatch.get()[objectType + "->Creep"];
-            if (typeof transfer === "undefined")
+            if (typeof transfer === "undefined") {
                 creep.say("Unable to take energy from type " + objectType);
-            else
-                transfer(src, creep);
+                return false;
+            }
+            else {
+                return transfer(src, creep);
+            }
         }
         else {
             creep.moveTo(object);
+            return false;
         }
     };
+    // returns true iff no more energy can be given after this turn
     CreepUtils.give = function (creep, object, objectType) {
         var tgt = object;
         if (creep.pos.isNearTo(tgt.pos.x, tgt.pos.y)) {
             var transfer = CreepUtils.transferDispatch.get()["Creep->" + objectType];
-            if (typeof transfer === "undefined")
+            if (typeof transfer === "undefined") {
                 creep.say("Unable to give enerty to type " + objectType);
-            else
-                transfer(creep, tgt);
+                return false;
+            }
+            else {
+                return transfer(creep, tgt);
+            }
         }
         else {
             creep.moveTo(object);
+            return false;
         }
     };
     CreepUtils.createHarvestorData = function (energy, memory) {
@@ -628,6 +672,21 @@ var CreepUtils = (function () {
         var name = "Creep" + MemoryUtils.uniqueNumber(memory);
         var creepMemory = {
             typeName: "Harvester",
+            formation: ""
+        };
+        return {
+            name: name,
+            body: body,
+            memory: creepMemory
+        };
+    };
+    CreepUtils.createTransporterData = function (energy, memory) {
+        var body = CreepUtils.createBody([MOVE, CARRY], [MOVE, CARRY, MOVE, CARRY, MOVE, CARRY, MOVE, CARRY, MOVE, CARRY,
+            MOVE, CARRY, MOVE, CARRY, MOVE, CARRY, MOVE, CARRY, MOVE, CARRY
+        ], energy);
+        var name = "Creep" + MemoryUtils.uniqueNumber(memory);
+        var creepMemory = {
+            typeName: "Transporter",
             formation: ""
         };
         return {
@@ -664,10 +723,17 @@ var CreepUtils = (function () {
     };
     CreepUtils.transferDispatch = new LazyValue(function () {
         var res = {};
-        var creepTransfer = function (src, tgt) { src.transfer(tgt, RESOURCE_ENERGY); };
+        var creepTransfer = function (src, tgt) {
+            src.transfer(tgt, RESOURCE_ENERGY);
+            return true;
+        };
         res["Creep->Creep"] = creepTransfer;
         res["Creep->Spawn"] = creepTransfer;
-        res["Source->Creep"] = function (src, tgt) { tgt.harvest(src); };
+        res["Source->Creep"] = function (src, tgt) {
+            tgt.harvest(src);
+            return (tgt.carry.energy == tgt.carryCapacity
+                || src.energy == 0);
+        };
         return res;
     });
     CreepUtils.bodyCosts = new LazyValue(function () {
@@ -689,91 +755,182 @@ var CreepUtils = (function () {
     });
     return CreepUtils;
 })();
-var SupplyChainOps = {
-    typeName: "SupplyChain",
-    createSupplyChain: function (creeps, sources, destination, spawn, context) {
-        var creepNames = [];
-        var supplyChainName = "SupplyChain" + MemoryUtils.uniqueNumber(context.memory);
-        for (var i = 0; i < creeps.length; ++i) {
-            creeps[i].memory.formation = supplyChainName;
-            creepNames.push(creeps[i].name);
-            SpawnUtils.schedule(spawn, creeps[i], context.memory);
-        }
-        var supplyChain = {
-            name: supplyChainName,
-            typeName: "SupplyChain",
-            creeps: creepNames,
-            sources: Queue.createFromArray(sources),
-            destination: destination
-        };
-        context.memory.centralMemory.formations[supplyChainName] = supplyChain;
-        return true;
-    },
+var ExtractorFormationOps = {
+    typeName: "ExtractorFormation",
     execute: function (formation, context) {
-        var supplyChain = formation;
-        //remove all dead creeps from supplyChain
-        supplyChain.creeps = ArrayUtils.filter(supplyChain.creeps, function (nm) { return !CreepUtils.isDead(nm, context.game, context.memory); });
-        //delete supplyChain if all creeps have died
-        if (supplyChain.creeps.length == 0) {
-            log.warn("Deleting formation " + formation.name + " because all creeps have died!");
-            delete context.memory.centralMemory.formations[formation.name];
-            return;
+        // downcast formation
+        var ef = formation;
+        // filter out dead creeps
+        var isDead = function (name) {
+            return !CreepUtils.isDead(name, context.game, context.memory);
+        };
+        ef.extractorCreeps = ArrayUtils.filter(ef.extractorCreeps, isDead);
+        ef.transporterCreeps = ArrayUtils.filter(ef.transporterCreeps, isDead);
+        // filter out dead statuses, and set default status to "take"
+        var allCreeps = ArrayUtils.append(ef.extractorCreeps, ef.transporterCreeps);
+        var allStatuses = ArrayUtils.map(allCreeps, function (crn) {
+            if (typeof ef.creepStatus[crn] === "undefined")
+                return "take";
+            else
+                return ef.creepStatus[crn];
+        });
+        ef.creepStatus = ArrayUtils.toStringDictionary(allCreeps, allStatuses);
+        // get active creeps
+        var isActive = function (crName) {
+            return CreepUtils.isFunctional(crName, context.game);
+        };
+        var activeExtractors = ArrayUtils.filter(ef.extractorCreeps, isActive);
+        var activeTransporters = ArrayUtils.filter(ef.transporterCreeps, isActive);
+        // source and target for extractors
+        var source = context.game.getObjectById(ef.sourceId);
+        var sourceType = ef.sourceType;
+        var target = context.game.getObjectById(ef.targetId);
+        var targetType = ef.targetType;
+        if (activeTransporters.length > 0) {
+            target = activeTransporters[0];
+            targetType = "Creep";
         }
-        //find all functional creeps (already spawned)
-        var creeps = ArrayUtils.filter(supplyChain.creeps, function (nm) { return CreepUtils.isFunctional(nm, context.game); });
-        //nothing to do if no function creeps
-        if (creeps.length == 0)
-            return;
-        var sources = new Queue(supplyChain.sources);
-        for (var creepIdx = 0; creepIdx < creeps.length; ++creepIdx) {
-            var creep = context.game.creeps[creeps[creepIdx]];
-            if (creepIdx == 0
-                && sources.length() > 0
-                && creep.carry.energy < creep.carryCapacity) {
-                //first creep needs to cycle through sources untill it's full.
-                var nextSource = sources.top();
-                CreepUtils.take(creep, context.game.getObjectById(nextSource.id), nextSource.typeName);
-                if (creep.pos.isNearTo(nextSource.x, nextSource.y)) {
-                    //if it's next to this source then cycle it to the back of the queue
-                    sources.pop();
-                    sources.push(nextSource);
-                }
+        // process extractors
+        for (var i = 0; i < activeExtractors.length; ++i) {
+            var crn = activeExtractors[i]; // creep name
+            var cr = context.game.creeps[crn]; // creep
+            var crs = ef.creepStatus[crn]; // creep status
+            if (crs === "take" && CreepUtils.take(cr, source, sourceType)) {
+                crs = "give";
+                // if extractor is full then this formation could use more transporters
+                if (cr.carry.energy == cr.carryCapacity &&
+                    activeTransporters.length == ef.transporterCreeps.length // check if already scheduled
+                )
+                    this.addTransporter(cr.room, context.memory);
             }
-            else if (creep.carry.energy < creep.carryCapacity) {
-                //creep is not full, go to it's source
-                var source = null;
-                var sourceType = null;
-                if (creepIdx == 0) {
-                    //first creep: extract from source
-                    //guaranteed only one source due to previous if condition
-                    var sources = new Queue(supplyChain.sources);
-                    source = context.game.getObjectById(sources.top().id);
-                    sourceType = sources.top().typeName;
+            if (crs === "give" && CreepUtils.give(cr, target, targetType))
+                crs = "take";
+            // update post-processing creep status
+            ef.creepStatus[crn] = crs;
+        }
+        // process transporters
+        for (var i = 0; i < activeTransporters.length; ++i) {
+            var crn = activeTransporters[i]; // creep name
+            var cr = context.game.creeps[crn]; // creep
+            var crs = ef.creepStatus[crn]; // creep status
+            // set source and sourceType
+            // first transporter creep should take from nextExtractor, or ef.source
+            // everyone else should take from previous transporter
+            if (i == 0) {
+                if (activeExtractors.length == 0) {
+                    source = context.game.getObjectById(ef.sourceId);
+                    sourceType = ef.sourceType;
                 }
                 else {
-                    //source is previous creep
-                    source = context.game.creeps[creeps[creepIdx - 1]];
+                    source = activeExtractors[ef.nextExtractor % activeExtractors.length];
                     sourceType = "Creep";
                 }
-                CreepUtils.take(creep, source, sourceType);
             }
             else {
-                //creep is full: go to it's target
-                var target = null;
-                var targetType = null;
-                if (creepIdx == creeps.length - 1) {
-                    //last creep: target is destination
-                    target = context.game.getObjectById(supplyChain.destination.id);
-                    targetType = supplyChain.destination.typeName;
+                source = context.game.creeps[activeTransporters[i - 1]];
+                sourceType = "Creep";
+            }
+            // set target and targetType
+            if (i + 1 < activeTransporters.length) {
+                targetType = "Creep";
+                target = context.game.creeps[activeTransporters[i + 1]];
+            }
+            else {
+                targetType = ef.targetType;
+                target = context.game.getObjectById(ef.targetId);
+            }
+            // actual processing logic
+            if (crs === "give" && CreepUtils.give(cr, target, targetType))
+                crs = "take";
+            if (crs === "take" && CreepUtils.take(cr, source, sourceType)) {
+                crs = "give";
+                // cycle the first transporter across extractors
+                if (i == 0 && activeExtractors.length > 0) {
+                    ef.nextExtractor = (ef.nextExtractor + 1) % activeExtractors.length;
+                    // keep taking till you're full
+                    if (cr.carry.energy < cr.carryCapacity)
+                        crs = "take";
                 }
-                else {
-                    //target is next creep
-                    target = context.game.creeps[creeps[creepIdx + 1]];
-                    targetType = "Creep";
+            }
+            // update post-processing creep status
+            ef.creepStatus[crn] = crs;
+        }
+    },
+    extend: function (f, spawn, context) {
+        var ef = f;
+        var isFunctional = function (name) {
+            return CreepUtils.isFunctional(name, context.game);
+        };
+        var activeExtr = ArrayUtils.filter(ef.extractorCreeps, isFunctional);
+        var numExtr = activeExtr.length; // number of active extractors
+        var getWorkAmount = function (crn) {
+            return context.game.creeps[crn].getActiveBodyParts(WORK);
+        };
+        var numWork = ArrayUtils.sum(// total work parts
+        ArrayUtils.map(activeExtr, getWorkAmount));
+        if (numWork * GameConstants.harvestPerWorkBpPerTick * GameConstants.sourceRechargeTime >=
+            GameConstants.sourceCapacity)
+            return;
+        var source = context.game.getObjectById(ef.sourceId);
+        var room = source.room;
+        var x = source.pos.x;
+        var y = source.pos.y;
+        var freeCells = 0; // number of free cells surrounding the source
+        for (var dx = -1; dx <= 1; ++dx) {
+            for (var dy = -1; dy <= 1; ++dy) {
+                if (GameUtils.getTerrain(room, x + dx, y + dy) !== "wall" &&
+                    GameUtils.getStructures(room, x + dx, y + dy).length == 0) {
+                    ++freeCells;
                 }
-                CreepUtils.give(creep, target, targetType);
             }
         }
+        if (freeCells <= numExtr)
+            return;
+        this.addExtractor(ef, context.memory, spawn);
+    },
+    addTransporter: function (ef, room, memory) {
+        var allSpawns = room.find(FIND_MY_SPAWNS);
+        if (allSpawns.length == 0)
+            return;
+        var spawn = allSpawns[0];
+        var energy = spawn.energyCapacity;
+        var buildData = CreepUtils.createTransporterData(energy, memory);
+        buildData.memory.formation = ef.name;
+        SpawnUtils.schedule(spawn, buildData, memory);
+        ef.transporterCreeps.push(buildData.name);
+    },
+    addExtractor: function (ef, memory, spawn) {
+        var energy = spawn.energyCapacity;
+        var buildData = CreepUtils.createHarvestorData(energy, memory);
+        buildData.memory.formation = ef.name;
+        SpawnUtils.schedule(spawn, buildData, memory);
+        ef.extractorCreeps.push(buildData.name);
+    }
+};
+//==============================================================================
+var GameConstants = {
+    // number of energy units harvestable by a creep
+    // per WORK body part per tick
+    harvestPerWorkBpPerTick: 2,
+    // Full capacity of a source
+    sourceCapacity: 3000,
+    // No of ticks between source recharges
+    sourceRechargeTime: 300
+};
+//==============================================================================
+var GameUtils = {
+    getTerrain: function (room, x, y) {
+        var terrains = room.lookForAt("terrain", x, y);
+        var funcIsWall = function (terrain) { return terrain.terrain === "wall"; };
+        var funcIsSwamp = function (terrain) { return terrain.terrain === "swamp"; };
+        if (ArrayUtils.exists(terrains, funcIsWall))
+            return "wall";
+        if (ArrayUtils.exists(terrains, funcIsSwamp))
+            return "swamp";
+        return "plain";
+    },
+    getStructures: function (room, x, y) {
+        return room.lookForAt("structure", x, y);
     }
 };
 //==============================================================================
@@ -784,10 +941,13 @@ var FormationUtils = (function () {
     FormationUtils.execute = function (formation, context) {
         FormationUtils.dispatch.get()[formation.typeName].execute(formation, context);
     };
+    FormationUtils.extend = function (formation, spawn, context) {
+        FormationUtils.dispatch.get()[formation.typeName].extend(formation, spawn, context);
+    };
     //Get a FormationOps for a given formation type
     //usage: FormationUtils.dispatch.get()[typeName]
     FormationUtils.dispatch = new LazyValue(function () {
-        var allOps = [SupplyChainOps];
+        var allOps = [ExtractorFormationOps];
         var result = {};
         for (var i = 0; i < allOps.length; ++i) {
             result[allOps[i].typeName] = allOps[i];
@@ -822,14 +982,23 @@ var ScanEndPointsTaskOps = {
                 var closestSpawn = source.pos.findClosestByPath(FIND_MY_STRUCTURES, { filter: isSpawn });
                 if (closestSpawn == null || closestSpawn.pos.roomName !== source.pos.roomName)
                     break;
+                var formation = {
+                    name: "Formation" + MemoryUtils.uniqueNumber(context.memory),
+                    typeName: "ExtractorFormation",
+                    sourceId: source.id,
+                    sourceType: "Source",
+                    targetId: closestSpawn.id,
+                    targetType: "Spawn",
+                    extractorCreeps: [],
+                    transporterCreeps: [],
+                    creepStatus: {},
+                    nextExtractor: 0
+                };
+                ExtractorFormationOps.addExtractor(formation, context.memory, closestSpawn);
                 //create a supplyChain from source to spawn
                 context.cleanUps.push({
                     apply: function () {
-                        context.memory.centralMemory.strategy.push({
-                            typeName: "CreateHarvestorTask",
-                            spawnName: this.spawnName,
-                            sourceId: this.sourceId
-                        });
+                        context.memory.centralMemory.formations[formation.name] = formation;
                     },
                     spawnName: closestSpawn.name,
                     sourceId: source.id
@@ -840,30 +1009,18 @@ var ScanEndPointsTaskOps = {
     }
 };
 //==============================================================================
-var CreateHarvestorTaskOps = {
-    typeName: "CreateHarvestorTask",
+var ExtendFormationTaskOps = {
+    typeName: "ExtendFormation",
     schedule: function (task, context) {
-        var feTask = task;
-        var spawn = context.game.spawns[feTask.spawnName];
-        if (typeof spawn === "undefined") {
-            log.error("CreateHarvestorTask: Unable to find spawn " + feTask.spawnName);
-            return false;
+        for (var spawnName in context.game.spawns) {
+            var spawn = context.game.spawns[spawn];
+            var strategyQueue = new Queue(spawn.memory.strategyQueue);
+            for (var formationName in context.memory.centralMemory.formations) {
+                if (strategyQueue.length() > 0)
+                    break;
+                FormationUtils.extend(context.memory.centralMemory.formations[formationName], spawn, context);
+            }
         }
-        var creepBuildData = CreepUtils.createHarvestorData(spawn.room.energyCapacityAvailable, context.memory);
-        var source = context.game.getObjectById(feTask.sourceId);
-        var sourceEndPoint = {
-            typeName: "Source",
-            id: source.id,
-            x: source.pos.x,
-            y: source.pos.y
-        };
-        var destinationEndPoint = {
-            typeName: "Spawn",
-            id: spawn.id,
-            x: spawn.pos.x,
-            y: spawn.pos.y
-        };
-        return SupplyChainOps.createSupplyChain([creepBuildData], [sourceEndPoint], destinationEndPoint, spawn, context);
     }
 };
 //==============================================================================
@@ -879,7 +1036,7 @@ var TaskUtils = (function () {
         return ops.schedule(t, context);
     };
     TaskUtils.dispatch = new LazyValue(function () {
-        var allOps = [CreateHarvestorTaskOps, ScanEndPointsTaskOps];
+        var allOps = [ScanEndPointsTaskOps];
         var result = {};
         for (var i = 0; i < allOps.length; ++i) {
             result[allOps[i].typeName] = allOps[i];
