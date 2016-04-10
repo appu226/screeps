@@ -537,7 +537,7 @@ var MemoryUtils = (function () {
         var idleCreeps = [];
         var scheduledCreeps = {};
         var spawningCreeps = {};
-        strategy.push({ typeName: "ScanEndPointsTask" });
+        strategy.push({ typeName: "ScanEndPointsTask" }, { typeName: "ExtendFormationTask" });
         memory.centralMemory = {
             strategy: strategy,
             tactic: tactic,
@@ -801,7 +801,7 @@ var ExtractorFormationOps = {
                 if (cr.carry.energy == cr.carryCapacity &&
                     activeTransporters.length == ef.transporterCreeps.length // check if already scheduled
                 )
-                    this.addTransporter(cr.room, context.memory);
+                    this.addTransporter(ef, cr.room, context.memory);
             }
             if (crs === "give" && CreepUtils.give(cr, target, targetType))
                 crs = "take";
@@ -996,13 +996,7 @@ var ScanEndPointsTaskOps = {
                 };
                 ExtractorFormationOps.addExtractor(formation, context.memory, closestSpawn);
                 //create a supplyChain from source to spawn
-                context.cleanUps.push({
-                    apply: function () {
-                        context.memory.centralMemory.formations[formation.name] = formation;
-                    },
-                    spawnName: closestSpawn.name,
-                    sourceId: source.id
-                });
+                context.memory.centralMemory.formations[formation.name] = formation;
             }
         }
         return true;
@@ -1010,10 +1004,10 @@ var ScanEndPointsTaskOps = {
 };
 //==============================================================================
 var ExtendFormationTaskOps = {
-    typeName: "ExtendFormation",
+    typeName: "ExtendFormationTask",
     schedule: function (task, context) {
         for (var spawnName in context.game.spawns) {
-            var spawn = context.game.spawns[spawn];
+            var spawn = context.game.spawns[spawnName];
             var strategyQueue = new Queue(spawn.memory.strategyQueue);
             for (var formationName in context.memory.centralMemory.formations) {
                 if (strategyQueue.length() > 0)
@@ -1021,6 +1015,7 @@ var ExtendFormationTaskOps = {
                 FormationUtils.extend(context.memory.centralMemory.formations[formationName], spawn, context);
             }
         }
+        return false;
     }
 };
 //==============================================================================
@@ -1036,7 +1031,7 @@ var TaskUtils = (function () {
         return ops.schedule(t, context);
     };
     TaskUtils.dispatch = new LazyValue(function () {
-        var allOps = [ScanEndPointsTaskOps];
+        var allOps = [ScanEndPointsTaskOps, ExtendFormationTaskOps];
         var result = {};
         for (var i = 0; i < allOps.length; ++i) {
             result[allOps[i].typeName] = allOps[i];
