@@ -584,7 +584,8 @@ class MemoryUtils {
         var spawningCreeps: StringDictionary<string> = {};
         strategy.push(
             { typeName: "ScanEndPointsTask" },
-            { typeName: "ExtendFormationTask" }
+            { typeName: "ExtendFormationTask" },
+            { typeName: "CreateArcherFormationTask" }
         );
         memory.centralMemory = {
             strategy: strategy,
@@ -593,7 +594,8 @@ class MemoryUtils {
             idleCreeps: idleCreeps,
             scheduledCreeps: scheduledCreeps,
             spawningCreeps: spawningCreeps,
-            uniqueCounter: 10
+            uniqueCounter: 10,
+            startingTime: game.time
         }
 
         for (var spawnName in game.spawns) {
@@ -607,6 +609,7 @@ class MemoryUtils {
     static update(context: Context): void {
         if (!context.memory.centralMemory) MemoryUtils.initMemory(context.game, context.memory);
         MemoryUtils.processSpawnedCreeps(context.game, context.memory);
+        MemoryUtils.processHostileCreeps( context );
     }
     static uniqueNumber(memory: IMemory): number {
         return ++memory.centralMemory.uniqueCounter;
@@ -622,6 +625,31 @@ class MemoryUtils {
         for (var sc = 0; sc < spawnedCreeps.length; ++sc) {
             var cn = spawnedCreeps[sc];
             delete spawningCreeps[cn];
+        }
+    }
+    static getTimeSinceStart(context: Context): number {
+        return context.game.time - context.memory.centralMemory.startingTime;
+    }
+    static processHostileCreeps( context: Context ): void {
+        for( var spawnName in context.game.spawns ) {
+            var spawn = context.game.spawns[ spawnName ];
+            var room = spawn.room;
+            var enemyCreeps = room.find( FIND_HOSTILE_CREEPS );
+            var enemyCreeps = ArrayUtils.map<any, any>( enemyCreeps, CreepUtils.notSourceKeeper );
+            var numEnemies = enemyCreeps.length;
+            
+            for( var formationName in context.memory.centralMemory.formations ) {
+                if( numEnemies == 0 ) 
+                    break;
+                
+                var formation = context.memory.centralMemory.formations[ formationName ];
+                if( !formation.isMilitary )
+                    continue;
+                
+                numEnemies = numEnemies - FormationUtils.numSoldiers( formation );
+                if( numEnemies > 0 ) 
+                    FormationUtils.extend( formation, spawn, context, true );
+            }
         }
     }
 }
@@ -653,8 +681,13 @@ class SpawnUtils {
         }
     }
 
-    static schedule(spawn: Spawn, creep: CreepBuildData, memory: IMemory): void {
-        new Queue<CreepBuildData>(spawn.memory.strategyQueue).push(creep);
+    static schedule(spawn: Spawn, creep: CreepBuildData, memory: IMemory, tactical: boolean): void {
+        var q: Queue<CreepBuildData> = null;
+        if( tactical )
+            q = new Queue<CreepBuildData>(spawn.memory.tacticQueue);
+        else
+            q = new Queue<CreepBuildData>(spawn.memory.strategyQueue);
+        q.push(creep);
         memory.centralMemory.scheduledCreeps[creep.name] = spawn.name;
     }
 }
@@ -746,7 +779,7 @@ class CreepUtils {
             typeName: "Harvester",
             formation: "" 
         };
-        return <CreepBuildData>{
+        return {
             name: name,
             body: body,
             memory: creepMemory
@@ -766,7 +799,31 @@ class CreepUtils {
             typeName: "Transporter",
             formation: ""
         };
-        return <CreepBuildData>{
+        return {
+            name: name,
+            body: body,
+            memory: creepMemory
+        };
+    }
+
+    static createArcherData( energy: number, memory: IMemory ): CreepBuildData {
+        var body = CreepUtils.createBody(
+            [MOVE, RANGED_ATTACK],
+            [MOVE, RANGED_ATTACK,
+                MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK,
+                MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK,
+                MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK,
+                MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK,
+                MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK
+            ],
+            energy
+        );
+        var name = "Creep" + MemoryUtils.uniqueNumber(memory);
+        var creepMemory: CreepMemory = {
+            typeName: "Archer",
+            formation: ""
+        };
+        return <CreepBuildData> {
             name: name,
             body: body,
             memory: creepMemory
@@ -824,13 +881,125 @@ class CreepUtils {
             return result;
         }
     );
+
+    static notSourceKeeper = function( cr: any ): boolean {
+        return cr == null || cr.owner.username !== "Source Keeper";
+    };
 }
 
 //==============================================================================
 interface FormationOps {
     typeName: string;
     execute( formation: Formation, context: Context ): void;
-    extend( formation: Formation, spawn: Spawn, context: Context ): void;
+    extend( formation: Formation, spawn: Spawn, context: Context, tactical: boolean ): void;
+    numSoldiers( formation: Formation );
+}
+
+//==============================================================================
+interface ArcherFormation extends Formation {
+    targetId: string;
+    targetType: string;
+    archers: Array<string>;
+    roomName: string;
+}
+
+interface IArcherFormationOps extends FormationOps {
+    createNew( spawn: Spawn, context: Context ): void;
+}
+
+var ArcherFormationOps: IArcherFormationOps  = {
+    typeName: "ArcherFormation",
+    execute( formation: Formation, context: Context ): void {
+        var af = <ArcherFormation>formation;
+        if( af.archers.length == 0 )
+            return;
+        var isAlive = function( crn: string ): boolean { return !CreepUtils.isDead( crn, context.game, context.memory ); };
+        var isActive = function( crn: string ): boolean { return CreepUtils.isFunctional( crn, context.game ); };
+        var getCreep = function( crn: string ): Creep { return context.game.creeps[crn]; };
+        var getX = function( cr: Creep ): number { return cr.pos.x; };
+        var getY = function( cr: Creep ): number { return cr.pos.y; };
+        
+        af.archers = ArrayUtils.filter<string>( af.archers, isAlive );
+        var activeCrns = ArrayUtils.filter< string >( af.archers, isActive );
+        if( activeCrns.length == 0 )
+            return;
+        var crs = ArrayUtils.map< string, Creep > ( activeCrns, getCreep );
+        var target = context.game.getObjectById( af.targetId );
+        var targetType = af.targetType;
+        var room = crs[0].room;
+        if( target == null || (<HasPosition>target).pos.roomName != room.name) {
+            var avgX = Math.ceil( ArrayUtils.sum( ArrayUtils.map< Creep, number >( crs, getX ) ) / crs.length );
+            var avgY = Math.ceil( ArrayUtils.sum( ArrayUtils.map< Creep, number >( crs, getY ) ) / crs.length );
+            var avgPos = room.getPositionAt( avgX, avgY );
+            target = avgPos.findClosestByRange( FIND_HOSTILE_CREEPS );
+            if( !CreepUtils.notSourceKeeper( target ) ) target = null;
+            targetType = "Creep";
+            if( target == null ) {
+                target = avgPos.findClosestByRange( FIND_HOSTILE_SPAWNS );
+                if( !CreepUtils.notSourceKeeper( target ) ) target = null;
+                targetType = "Spawn";
+            }
+            if( target == null ) {
+                target = avgPos.findClosestByRange( FIND_HOSTILE_STRUCTURES );
+                if( !CreepUtils.notSourceKeeper( target ) ) target = null;
+                targetType = "Structure";
+            }
+            if( target == null ) {
+                target = avgPos.findClosestByRange( FIND_HOSTILE_CONSTRUCTION_SITES );
+                if( !CreepUtils.notSourceKeeper( target ) ) target = null;
+                targetType = "ConstructionSite";
+            }
+            if( target == null )
+                return;
+        }
+        af.targetId = target.id;
+        af.targetType = targetType;
+        var targetPos = (<HasPosition>target).pos;
+        for( var cri = 0; cri < crs.length; ++cri ) {
+            var cr: Creep = crs[cri];
+            var distance = cr.pos.getRangeTo( targetPos.x, targetPos.y );
+            if( distance > 3 ) {
+                cr.rangedMassAttack();
+                cr.moveTo( targetPos );
+            }
+            if( distance < 3 ) {
+                cr.move( targetPos.getDirectionTo( cr.pos.x, cr.pos.y ) );
+            }
+            cr.rangedAttack( target );
+        }
+    },
+    extend( formation: Formation, spawn: Spawn, context: Context, tactical: boolean ): void {
+        var af = <ArcherFormation>formation;
+        var isAlive = function( crn: string ): boolean { 
+            return !CreepUtils.isDead( crn, context.game, context.memory ); 
+        };
+        var isScheduled = function( crn: string ): boolean {
+            return CreepUtils.isScheduled( crn, context.memory );
+        };
+        af.archers = ArrayUtils.filter<string>( af.archers, isAlive );
+        var isAlreadyScheduled = ArrayUtils.exists< string >( af.archers, isScheduled );
+        if( af.archers.length < 5 && ( !isAlreadyScheduled || tactical ) ) {
+            var archerData = CreepUtils.createArcherData( spawn.energyCapacity, context.memory );
+            archerData.memory.formation = af.name;
+            af.archers.push( archerData.name );
+            SpawnUtils.schedule( spawn, archerData, context.memory, tactical );
+        }
+    },
+    numSoldiers( formation: Formation ) {
+        return ( <ArcherFormation>formation ).archers.length;
+    },
+    createNew( spawn: Spawn, context: Context ): void {
+        var af: ArcherFormation = {
+            name: "Formation" + MemoryUtils.uniqueNumber( context.memory ),
+            typeName: "ArcherFormation",
+            isMilitary: true,
+            targetId: "",
+            targetType: "",
+            archers: [],
+            roomName: spawn.pos.roomName
+        };
+        context.memory.centralMemory.formations[ af.name ] = af;
+    }
 }
 
 //==============================================================================
@@ -846,8 +1015,8 @@ interface ExtractorFormation extends Formation {
 }
 
 interface IExtractorFormationOps extends FormationOps {
-    addTransporter( ef: ExtractorFormation, room: Room, memory: IMemory ): void;
-    addExtractor( ef: ExtractorFormation, memory: IMemory, spawn: Spawn ): void;
+    addTransporter( ef: ExtractorFormation, room: Room, memory: IMemory, tactical: boolean ): void;
+    addExtractor( ef: ExtractorFormation, memory: IMemory, spawn: Spawn, tactical: boolean ): void;
 }
 
 var ExtractorFormationOps: IExtractorFormationOps = {
@@ -963,7 +1132,7 @@ var ExtractorFormationOps: IExtractorFormationOps = {
             ef.creepStatus[ crn ] = crs;
         }
     },
-    extend( f: Formation, spawn: Spawn, context: Context ): void {
+    extend( f: Formation, spawn: Spawn, context: Context, tactical: boolean ): void {
         var ef = <ExtractorFormation>f;
         var isFunctional = function( name: string ): boolean {
             return CreepUtils.isFunctional( name, context.game );
@@ -1004,9 +1173,12 @@ var ExtractorFormationOps: IExtractorFormationOps = {
         }
         if( freeCells <= numExtr )
             return;
-        this.addExtractor( ef, context.memory, spawn );
+        this.addExtractor( ef, context.memory, spawn, tactical );
     },
-    addTransporter( ef: ExtractorFormation, room: Room, memory: IMemory ): void {
+    numSoldiers( f: Formation ): number {
+        return 0;
+    },
+    addTransporter( ef: ExtractorFormation, room: Room, memory: IMemory, tactical: boolean ): void {
         var allSpawns: Array<any> = room.find( FIND_MY_SPAWNS );
         if( allSpawns.length == 0 ) return;
         var spawn = <Spawn>allSpawns[ 0 ];
@@ -1015,16 +1187,16 @@ var ExtractorFormationOps: IExtractorFormationOps = {
         var buildData = CreepUtils.createTransporterData( energy, memory );
         buildData.memory.formation = ef.name;
 
-        SpawnUtils.schedule( spawn, buildData, memory );
+        SpawnUtils.schedule( spawn, buildData, memory, tactical );
 
         ef.transporterCreeps.push( buildData.name );
     },
-    addExtractor( ef: ExtractorFormation, memory: IMemory, spawn: Spawn ): void {
+    addExtractor( ef: ExtractorFormation, memory: IMemory, spawn: Spawn, tactical: boolean ): void {
         var energy = spawn.energyCapacity;
         var buildData = CreepUtils.createHarvestorData( energy, memory )
         buildData.memory.formation = ef.name;
 
-        SpawnUtils.schedule( spawn, buildData, memory );
+        SpawnUtils.schedule( spawn, buildData, memory, tactical );
         
         ef.extractorCreeps.push( buildData.name );
     }
@@ -1038,7 +1210,9 @@ var GameConstants = {
     // Full capacity of a source
     sourceCapacity: 3000,
     // No of ticks between source recharges
-    sourceRechargeTime: 300
+    sourceRechargeTime: 300,
+    // Time between enemy waves
+    enemyWaveFrequency: 200
 };
 
 //==============================================================================
@@ -1065,15 +1239,19 @@ class FormationUtils {
         FormationUtils.dispatch.get()[formation.typeName].execute(formation, context);
     }
 
-    static extend(formation: Formation, spawn: Spawn, context: Context): void {
-        FormationUtils.dispatch.get()[formation.typeName].extend(formation, spawn, context);
+    static extend(formation: Formation, spawn: Spawn, context: Context, tactical: boolean): void {
+        FormationUtils.dispatch.get()[formation.typeName].extend(formation, spawn, context, tactical);
+    }
+
+    static numSoldiers(formation: Formation): number {
+        return FormationUtils.dispatch.get()[formation.typeName].numSoldiers(formation);
     }
 
     //Get a FormationOps for a given formation type
     //usage: FormationUtils.dispatch.get()[typeName]
     static dispatch = new LazyValue<StringDictionary<FormationOps>>(
         function() {
-            var allOps: Array<FormationOps> = [ExtractorFormationOps];
+            var allOps: Array<FormationOps> = [ExtractorFormationOps, ArcherFormationOps];
             var result: StringDictionary<FormationOps> = {};
             for( var i = 0; i < allOps.length; ++i ) {
                 result[allOps[i].typeName] = allOps[i];
@@ -1119,6 +1297,7 @@ var ScanEndPointsTaskOps: TaskOps = {
                 var formation: ExtractorFormation = {
                     name: "Formation" + MemoryUtils.uniqueNumber( context.memory ),
                     typeName: "ExtractorFormation",
+                    isMilitary: false,
                     sourceId: source.id,
                     sourceType: "Source",
                     targetId: closestSpawn.id,
@@ -1128,7 +1307,7 @@ var ScanEndPointsTaskOps: TaskOps = {
                     creepStatus: (<StringDictionary<string>>{}),
                     nextExtractor: 0
                 };
-                ExtractorFormationOps.addExtractor( formation, context.memory, closestSpawn );
+                ExtractorFormationOps.addExtractor( formation, context.memory, closestSpawn, false );
 
                 //create a supplyChain from source to spawn
                 context.memory.centralMemory.formations[formation.name] = formation;
@@ -1150,8 +1329,23 @@ var ExtendFormationTaskOps: TaskOps = {
                 FormationUtils.extend(
                     context.memory.centralMemory.formations[formationName],
                     spawn, 
-                    context 
+                    context,
+                    false
                 );
+            }
+        }
+        return false;
+    }
+}
+
+//==============================================================================
+var CreateArcherFormationTaskOps: TaskOps = {
+    typeName: "CreateArcherFormationTask",
+    schedule( task: Task, context: Context ): boolean {
+        if( MemoryUtils.getTimeSinceStart( context ) % 100 == 50 ) {
+            for( var spawnName  in context.game.spawns ) {
+                var spawn = context.game.spawns[ spawnName ];
+                ArcherFormationOps.createNew( spawn, context );
             }
         }
         return false;
@@ -1177,7 +1371,7 @@ class TaskUtils {
     
     static dispatch = new LazyValue<StringDictionary<TaskOps>>(
         function(): StringDictionary<TaskOps> {
-            var allOps = [ScanEndPointsTaskOps, ExtendFormationTaskOps];
+            var allOps = [ScanEndPointsTaskOps, ExtendFormationTaskOps, CreateArcherFormationTaskOps];
             var result: StringDictionary<TaskOps> = {};
             for (var i = 0; i < allOps.length; ++i) {
                 result[allOps[i].typeName] = allOps[i];

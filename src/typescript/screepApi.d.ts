@@ -200,6 +200,16 @@ interface RoomPosition {
     findPathTo: (target: HasPosition, opts?: any) => Array<Step>;
 
     /**
+     * Get linear range to the specified position.
+     */
+    getRangeTo: (x: number, y: number) => number;
+
+    /**
+     * Get linear direction to the specified position.
+     */
+    getDirectionTo: ( x: number, y:number ) => DIRECTION_CONSTANT;
+
+    /**
      * Check whether this position is on the adjacent square to the specified position. 
      * The same as inRangeTo(target, 1).
      */
@@ -252,10 +262,20 @@ interface Room {
     find: ( type: FIND_CONSTANT, opts?: { filter: any } ) => Array<any>;
 
     /**
+     * Creates a RoomPosition object at the specified location.
+     */
+    getPositionAt: ( x: number, y: number ) => RoomPosition;
+
+    /**
      * Get an object with the given type at the specified room position
      * http://screeps.wikia.com/wiki/LookAt
      */
     lookForAt: ( type: string, x: number, y: number ) => Array<any>;
+
+    /**
+     * The name of the room.
+     */
+    name: string;
 }
 
 interface Spawn extends HasPosition {
@@ -385,6 +405,11 @@ interface Creep extends HasPosition, CreepOrStructure {
      * an object instance by its id.
      */
     id: string;
+
+    /**
+     * Move the creep one square in the specified direction. Requires the MOVE body part.
+     */
+    move: ( direction: DIRECTION_CONSTANT ) => RESULT_CODE;
     
     /**
      * Find the optimal path to the target within the same room 
@@ -410,6 +435,22 @@ interface Creep extends HasPosition, CreepOrStructure {
      * username: String: The name of the owner user.
      */
     owner: { username: string }
+
+    /**
+     * A ranged attack against another creep or structure. 
+     * Requires the RANGED_ATTACK body part. 
+     * If the target is inside a rampart, the rampart is attacked instead. 
+     * The target has to be within 3 squares range of the creep.
+     */
+    rangedAttack: ( target: any ) => void;
+
+    /**
+     * A ranged attack against all hostile creeps or structures within 3 squares range. 
+     * Requires the RANGED_ATTACK body part. 
+     * The attack power depends on the range to each target. 
+     * Friendly units are not affected.
+     */
+    rangedMassAttack: () => void;
     
     /**
      * Repair a damaged structure using carried energy. 
@@ -484,6 +525,7 @@ interface IGame {
     getObjectById: (id: string) => any;
     rooms: StringDictionary<Room>;
     spawns: StringDictionary<Spawn>;
+    time: number;
 }
 
 declare var Game: IGame;
@@ -552,6 +594,7 @@ interface Task {
 interface Formation {
     name: string;
     typeName: string;
+    isMilitary: boolean;
 }
 
 interface CentralMemory {
@@ -562,4 +605,5 @@ interface CentralMemory {
     scheduledCreeps: StringDictionary<string>; //map from creep name to spawn name
     spawningCreeps: StringDictionary<string>;
     uniqueCounter: number;
+    startingTime: number;
 }

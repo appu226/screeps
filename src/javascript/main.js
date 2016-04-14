@@ -537,7 +537,7 @@ var MemoryUtils = (function () {
         var idleCreeps = [];
         var scheduledCreeps = {};
         var spawningCreeps = {};
-        strategy.push({ typeName: "ScanEndPointsTask" }, { typeName: "ExtendFormationTask" });
+        strategy.push({ typeName: "ScanEndPointsTask" }, { typeName: "ExtendFormationTask" }, { typeName: "CreateArcherFormationTask" });
         memory.centralMemory = {
             strategy: strategy,
             tactic: tactic,
@@ -545,7 +545,8 @@ var MemoryUtils = (function () {
             idleCreeps: idleCreeps,
             scheduledCreeps: scheduledCreeps,
             spawningCreeps: spawningCreeps,
-            uniqueCounter: 10
+            uniqueCounter: 10,
+            startingTime: game.time
         };
         for (var spawnName in game.spawns) {
             game.spawns[spawnName].memory = {
@@ -559,6 +560,7 @@ var MemoryUtils = (function () {
         if (!context.memory.centralMemory)
             MemoryUtils.initMemory(context.game, context.memory);
         MemoryUtils.processSpawnedCreeps(context.game, context.memory);
+        MemoryUtils.processHostileCreeps(context);
     };
     MemoryUtils.uniqueNumber = function (memory) {
         return ++memory.centralMemory.uniqueCounter;
@@ -574,6 +576,28 @@ var MemoryUtils = (function () {
         for (var sc = 0; sc < spawnedCreeps.length; ++sc) {
             var cn = spawnedCreeps[sc];
             delete spawningCreeps[cn];
+        }
+    };
+    MemoryUtils.getTimeSinceStart = function (context) {
+        return context.game.time - context.memory.centralMemory.startingTime;
+    };
+    MemoryUtils.processHostileCreeps = function (context) {
+        for (var spawnName in context.game.spawns) {
+            var spawn = context.game.spawns[spawnName];
+            var room = spawn.room;
+            var enemyCreeps = room.find(FIND_HOSTILE_CREEPS);
+            var enemyCreeps = ArrayUtils.map(enemyCreeps, CreepUtils.notSourceKeeper);
+            var numEnemies = enemyCreeps.length;
+            for (var formationName in context.memory.centralMemory.formations) {
+                if (numEnemies == 0)
+                    break;
+                var formation = context.memory.centralMemory.formations[formationName];
+                if (!formation.isMilitary)
+                    continue;
+                numEnemies = numEnemies - FormationUtils.numSoldiers(formation);
+                if (numEnemies > 0)
+                    FormationUtils.extend(formation, spawn, context, true);
+            }
         }
     };
     return MemoryUtils;
@@ -604,8 +628,13 @@ var SpawnUtils = (function () {
             context.memory.centralMemory.spawningCreeps[top.name] = spawn.name;
         }
     };
-    SpawnUtils.schedule = function (spawn, creep, memory) {
-        new Queue(spawn.memory.strategyQueue).push(creep);
+    SpawnUtils.schedule = function (spawn, creep, memory, tactical) {
+        var q = null;
+        if (tactical)
+            q = new Queue(spawn.memory.tacticQueue);
+        else
+            q = new Queue(spawn.memory.strategyQueue);
+        q.push(creep);
         memory.centralMemory.scheduledCreeps[creep.name] = spawn.name;
     };
     return SpawnUtils;
@@ -695,6 +724,25 @@ var CreepUtils = (function () {
             memory: creepMemory
         };
     };
+    CreepUtils.createArcherData = function (energy, memory) {
+        var body = CreepUtils.createBody([MOVE, RANGED_ATTACK], [MOVE, RANGED_ATTACK,
+            MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK,
+            MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK,
+            MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK,
+            MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK,
+            MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK, MOVE, RANGED_ATTACK
+        ], energy);
+        var name = "Creep" + MemoryUtils.uniqueNumber(memory);
+        var creepMemory = {
+            typeName: "Archer",
+            formation: ""
+        };
+        return {
+            name: name,
+            body: body,
+            memory: creepMemory
+        };
+    };
     CreepUtils.createBody = function (minimumBody, addOns, energy) {
         var result = [];
         var remainingEnergy = energy;
@@ -753,8 +801,108 @@ var CreepUtils = (function () {
         }
         return result;
     });
+    CreepUtils.notSourceKeeper = function (cr) {
+        return cr == null || cr.owner.username !== "Source Keeper";
+    };
     return CreepUtils;
 })();
+var ArcherFormationOps = {
+    typeName: "ArcherFormation",
+    execute: function (formation, context) {
+        var af = formation;
+        if (af.archers.length == 0)
+            return;
+        var isAlive = function (crn) { return !CreepUtils.isDead(crn, context.game, context.memory); };
+        var isActive = function (crn) { return CreepUtils.isFunctional(crn, context.game); };
+        var getCreep = function (crn) { return context.game.creeps[crn]; };
+        var getX = function (cr) { return cr.pos.x; };
+        var getY = function (cr) { return cr.pos.y; };
+        af.archers = ArrayUtils.filter(af.archers, isAlive);
+        var activeCrns = ArrayUtils.filter(af.archers, isActive);
+        if (activeCrns.length == 0)
+            return;
+        var crs = ArrayUtils.map(activeCrns, getCreep);
+        var target = context.game.getObjectById(af.targetId);
+        var targetType = af.targetType;
+        var room = crs[0].room;
+        if (target == null || target.pos.roomName != room.name) {
+            var avgX = Math.ceil(ArrayUtils.sum(ArrayUtils.map(crs, getX)) / crs.length);
+            var avgY = Math.ceil(ArrayUtils.sum(ArrayUtils.map(crs, getY)) / crs.length);
+            var avgPos = room.getPositionAt(avgX, avgY);
+            target = avgPos.findClosestByRange(FIND_HOSTILE_CREEPS);
+            if (!CreepUtils.notSourceKeeper(target))
+                target = null;
+            targetType = "Creep";
+            if (target == null) {
+                target = avgPos.findClosestByRange(FIND_HOSTILE_SPAWNS);
+                if (!CreepUtils.notSourceKeeper(target))
+                    target = null;
+                targetType = "Spawn";
+            }
+            if (target == null) {
+                target = avgPos.findClosestByRange(FIND_HOSTILE_STRUCTURES);
+                if (!CreepUtils.notSourceKeeper(target))
+                    target = null;
+                targetType = "Structure";
+            }
+            if (target == null) {
+                target = avgPos.findClosestByRange(FIND_HOSTILE_CONSTRUCTION_SITES);
+                if (!CreepUtils.notSourceKeeper(target))
+                    target = null;
+                targetType = "ConstructionSite";
+            }
+            if (target == null)
+                return;
+        }
+        af.targetId = target.id;
+        af.targetType = targetType;
+        var targetPos = target.pos;
+        for (var cri = 0; cri < crs.length; ++cri) {
+            var cr = crs[cri];
+            var distance = cr.pos.getRangeTo(targetPos.x, targetPos.y);
+            if (distance > 3) {
+                cr.rangedMassAttack();
+                cr.moveTo(targetPos);
+            }
+            if (distance < 3) {
+                cr.move(targetPos.getDirectionTo(cr.pos.x, cr.pos.y));
+            }
+            cr.rangedAttack(target);
+        }
+    },
+    extend: function (formation, spawn, context, tactical) {
+        var af = formation;
+        var isAlive = function (crn) {
+            return !CreepUtils.isDead(crn, context.game, context.memory);
+        };
+        var isScheduled = function (crn) {
+            return CreepUtils.isScheduled(crn, context.memory);
+        };
+        af.archers = ArrayUtils.filter(af.archers, isAlive);
+        var isAlreadyScheduled = ArrayUtils.exists(af.archers, isScheduled);
+        if (af.archers.length < 5 && (!isAlreadyScheduled || tactical)) {
+            var archerData = CreepUtils.createArcherData(spawn.energyCapacity, context.memory);
+            archerData.memory.formation = af.name;
+            af.archers.push(archerData.name);
+            SpawnUtils.schedule(spawn, archerData, context.memory, tactical);
+        }
+    },
+    numSoldiers: function (formation) {
+        return formation.archers.length;
+    },
+    createNew: function (spawn, context) {
+        var af = {
+            name: "Formation" + MemoryUtils.uniqueNumber(context.memory),
+            typeName: "ArcherFormation",
+            isMilitary: true,
+            targetId: "",
+            targetType: "",
+            archers: [],
+            roomName: spawn.pos.roomName
+        };
+        context.memory.centralMemory.formations[af.name] = af;
+    }
+};
 var ExtractorFormationOps = {
     typeName: "ExtractorFormation",
     execute: function (formation, context) {
@@ -856,7 +1004,7 @@ var ExtractorFormationOps = {
             ef.creepStatus[crn] = crs;
         }
     },
-    extend: function (f, spawn, context) {
+    extend: function (f, spawn, context, tactical) {
         var ef = f;
         var isFunctional = function (name) {
             return CreepUtils.isFunctional(name, context.game);
@@ -886,9 +1034,12 @@ var ExtractorFormationOps = {
         }
         if (freeCells <= numExtr)
             return;
-        this.addExtractor(ef, context.memory, spawn);
+        this.addExtractor(ef, context.memory, spawn, tactical);
     },
-    addTransporter: function (ef, room, memory) {
+    numSoldiers: function (f) {
+        return 0;
+    },
+    addTransporter: function (ef, room, memory, tactical) {
         var allSpawns = room.find(FIND_MY_SPAWNS);
         if (allSpawns.length == 0)
             return;
@@ -896,14 +1047,14 @@ var ExtractorFormationOps = {
         var energy = spawn.energyCapacity;
         var buildData = CreepUtils.createTransporterData(energy, memory);
         buildData.memory.formation = ef.name;
-        SpawnUtils.schedule(spawn, buildData, memory);
+        SpawnUtils.schedule(spawn, buildData, memory, tactical);
         ef.transporterCreeps.push(buildData.name);
     },
-    addExtractor: function (ef, memory, spawn) {
+    addExtractor: function (ef, memory, spawn, tactical) {
         var energy = spawn.energyCapacity;
         var buildData = CreepUtils.createHarvestorData(energy, memory);
         buildData.memory.formation = ef.name;
-        SpawnUtils.schedule(spawn, buildData, memory);
+        SpawnUtils.schedule(spawn, buildData, memory, tactical);
         ef.extractorCreeps.push(buildData.name);
     }
 };
@@ -915,7 +1066,9 @@ var GameConstants = {
     // Full capacity of a source
     sourceCapacity: 3000,
     // No of ticks between source recharges
-    sourceRechargeTime: 300
+    sourceRechargeTime: 300,
+    // Time between enemy waves
+    enemyWaveFrequency: 200
 };
 //==============================================================================
 var GameUtils = {
@@ -941,13 +1094,16 @@ var FormationUtils = (function () {
     FormationUtils.execute = function (formation, context) {
         FormationUtils.dispatch.get()[formation.typeName].execute(formation, context);
     };
-    FormationUtils.extend = function (formation, spawn, context) {
-        FormationUtils.dispatch.get()[formation.typeName].extend(formation, spawn, context);
+    FormationUtils.extend = function (formation, spawn, context, tactical) {
+        FormationUtils.dispatch.get()[formation.typeName].extend(formation, spawn, context, tactical);
+    };
+    FormationUtils.numSoldiers = function (formation) {
+        return FormationUtils.dispatch.get()[formation.typeName].numSoldiers(formation);
     };
     //Get a FormationOps for a given formation type
     //usage: FormationUtils.dispatch.get()[typeName]
     FormationUtils.dispatch = new LazyValue(function () {
-        var allOps = [ExtractorFormationOps];
+        var allOps = [ExtractorFormationOps, ArcherFormationOps];
         var result = {};
         for (var i = 0; i < allOps.length; ++i) {
             result[allOps[i].typeName] = allOps[i];
@@ -985,6 +1141,7 @@ var ScanEndPointsTaskOps = {
                 var formation = {
                     name: "Formation" + MemoryUtils.uniqueNumber(context.memory),
                     typeName: "ExtractorFormation",
+                    isMilitary: false,
                     sourceId: source.id,
                     sourceType: "Source",
                     targetId: closestSpawn.id,
@@ -994,7 +1151,7 @@ var ScanEndPointsTaskOps = {
                     creepStatus: {},
                     nextExtractor: 0
                 };
-                ExtractorFormationOps.addExtractor(formation, context.memory, closestSpawn);
+                ExtractorFormationOps.addExtractor(formation, context.memory, closestSpawn, false);
                 //create a supplyChain from source to spawn
                 context.memory.centralMemory.formations[formation.name] = formation;
             }
@@ -1012,7 +1169,20 @@ var ExtendFormationTaskOps = {
             for (var formationName in context.memory.centralMemory.formations) {
                 if (strategyQueue.length() > 0)
                     break;
-                FormationUtils.extend(context.memory.centralMemory.formations[formationName], spawn, context);
+                FormationUtils.extend(context.memory.centralMemory.formations[formationName], spawn, context, false);
+            }
+        }
+        return false;
+    }
+};
+//==============================================================================
+var CreateArcherFormationTaskOps = {
+    typeName: "CreateArcherFormationTask",
+    schedule: function (task, context) {
+        if (MemoryUtils.getTimeSinceStart(context) % 100 == 50) {
+            for (var spawnName in context.game.spawns) {
+                var spawn = context.game.spawns[spawnName];
+                ArcherFormationOps.createNew(spawn, context);
             }
         }
         return false;
@@ -1031,7 +1201,7 @@ var TaskUtils = (function () {
         return ops.schedule(t, context);
     };
     TaskUtils.dispatch = new LazyValue(function () {
-        var allOps = [ScanEndPointsTaskOps, ExtendFormationTaskOps];
+        var allOps = [ScanEndPointsTaskOps, ExtendFormationTaskOps, CreateArcherFormationTaskOps];
         var result = {};
         for (var i = 0; i < allOps.length; ++i) {
             result[allOps[i].typeName] = allOps[i];
