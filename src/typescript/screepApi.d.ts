@@ -387,7 +387,7 @@ interface Creep extends HasPosition, CreepOrStructure {
     /**
      * Get the quantity of live body parts of the given type. Fully damaged parts do not count.
      */
-    getActiveBodyParts: ( body_type: BODY_TYPE ) => number;
+    getActiveBodyparts: ( body_type: BODY_TYPE ) => number;
     
     /**
      * Harvest energy from the source. 
@@ -578,8 +578,8 @@ interface CreepBuildData {
 }
 
 interface SpawnMemory {
-    tacticQueue: QueueData<CreepBuildData>;
-    strategyQueue: QueueData<CreepBuildData>;
+    tacticQueue: BTreeData<string, CreepBuildData>;
+    strategyQueue: BTreeData<string, CreepBuildData>;
 }
 
 interface CreepMemory {

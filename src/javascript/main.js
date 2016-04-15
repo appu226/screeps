@@ -7,13 +7,13 @@ var log = {
     CURRENT: 3,
     //^^^^^^^^^
     print: function (msg, level) {
-        if (level >= this.CURRENT)
+        if (level >= log.CURRENT)
             console.log("[" + log.levelString(level) + "]:\t" + msg);
     },
-    debug: function (msg) { this.print(msg, this.DEBUG); },
-    info: function (msg) { this.print(msg, this.INFO); },
-    warn: function (msg) { this.print(msg, this.WARN); },
-    error: function (msg) { this.print(msg, this.ERROR); },
+    debug: function (msg) { log.print(msg, log.DEBUG); },
+    info: function (msg) { log.print(msg, log.INFO); },
+    warn: function (msg) { log.print(msg, log.WARN); },
+    error: function (msg) { log.print(msg, log.ERROR); },
     levelString: function (level) {
         if (level <= log.DEBUG)
             return "DEBUG";
@@ -550,8 +550,8 @@ var MemoryUtils = (function () {
         };
         for (var spawnName in game.spawns) {
             game.spawns[spawnName].memory = {
-                tacticQueue: Queue.emptyQueueData(),
-                strategyQueue: Queue.emptyQueueData()
+                tacticQueue: BTree.emptyBTree(cmpString).data,
+                strategyQueue: BTree.emptyBTree(cmpString).data
             };
         }
     };
@@ -586,7 +586,8 @@ var MemoryUtils = (function () {
             var spawn = context.game.spawns[spawnName];
             var room = spawn.room;
             var enemyCreeps = room.find(FIND_HOSTILE_CREEPS);
-            var enemyCreeps = ArrayUtils.map(enemyCreeps, CreepUtils.notSourceKeeper);
+            var enemyCreeps = ArrayUtils.filter(enemyCreeps, CreepUtils.notSourceKeeper);
+            //TODO: investigate why so many archers get scheduled
             var numEnemies = enemyCreeps.length;
             for (var formationName in context.memory.centralMemory.formations) {
                 if (numEnemies == 0)
@@ -594,14 +595,19 @@ var MemoryUtils = (function () {
                 var formation = context.memory.centralMemory.formations[formationName];
                 if (!formation.isMilitary)
                     continue;
-                numEnemies = numEnemies - FormationUtils.numSoldiers(formation);
-                if (numEnemies > 0)
+                if (numEnemies - FormationUtils.numSoldiers(formation) > 0) {
                     FormationUtils.extend(formation, spawn, context, true);
+                }
+                numEnemies = numEnemies - FormationUtils.numSoldiers(formation);
             }
         }
     };
     return MemoryUtils;
 })();
+//==============================================================================
+var cmpString = function (a, b) {
+    return a < b;
+};
 //==============================================================================
 var SpawnUtils = (function () {
     function SpawnUtils() {
@@ -610,31 +616,37 @@ var SpawnUtils = (function () {
     //extracts from tacticQueue or strategyQueue (in that order), and schedules it
     SpawnUtils.process = function (spawn, context) {
         //check which queue to pick from
-        var buildQueue = new Queue(spawn.memory.tacticQueue);
+        var buildQueue = SpawnUtils.getBTree(spawn.memory.tacticQueue);
         if (buildQueue.length() == 0)
-            buildQueue = new Queue(spawn.memory.strategyQueue);
+            buildQueue = SpawnUtils.getBTree(spawn.memory.strategyQueue);
         if (buildQueue.length() == 0)
             return;
         //attempt to build the topmost one
-        var top = buildQueue.top();
-        var result = spawn.createCreep(top.body, top.name, top.memory);
+        var topOpt = buildQueue.findMaxPriority();
+        if (!topOpt.isDefined)
+            return;
+        var top = topOpt.get;
+        var result = spawn.createCreep(top.value.body, top.value.name, top.value.memory);
         //if attempt was successful, remove it from build queue
-        if (result == top.name) {
-            buildQueue.pop();
+        if (result == top.value.name) {
+            buildQueue.remove(top.key);
             var scheduledCreeps = context.memory.centralMemory.scheduledCreeps;
-            if (scheduledCreeps[top.name]) {
-                delete scheduledCreeps[top.name];
+            if (scheduledCreeps[top.value.name]) {
+                delete scheduledCreeps[top.value.name];
             }
-            context.memory.centralMemory.spawningCreeps[top.name] = spawn.name;
+            context.memory.centralMemory.spawningCreeps[top.value.name] = spawn.name;
         }
     };
-    SpawnUtils.schedule = function (spawn, creep, memory, tactical) {
+    SpawnUtils.getBTree = function (data) {
+        return new BTree(data, cmpString);
+    };
+    SpawnUtils.schedule = function (spawn, creep, memory, priority, tactical) {
         var q = null;
         if (tactical)
-            q = new Queue(spawn.memory.tacticQueue);
+            q = SpawnUtils.getBTree(spawn.memory.tacticQueue);
         else
-            q = new Queue(spawn.memory.strategyQueue);
-        q.push(creep);
+            q = SpawnUtils.getBTree(spawn.memory.strategyQueue);
+        q.insertOrUpdate(creep.name, creep, priority);
         memory.centralMemory.scheduledCreeps[creep.name] = spawn.name;
     };
     return SpawnUtils;
@@ -780,7 +792,7 @@ var CreepUtils = (function () {
         res["Source->Creep"] = function (src, tgt) {
             tgt.harvest(src);
             return (tgt.carry.energy == tgt.carryCapacity
-                || src.energy == 0);
+                || src.energy <= 5);
         };
         return res;
     });
@@ -865,6 +877,7 @@ var ArcherFormationOps = {
                 cr.moveTo(targetPos);
             }
             if (distance < 3) {
+                //TODO: move to bext possible place considering obstacles
                 cr.move(targetPos.getDirectionTo(cr.pos.x, cr.pos.y));
             }
             cr.rangedAttack(target);
@@ -884,7 +897,7 @@ var ArcherFormationOps = {
             var archerData = CreepUtils.createArcherData(spawn.energyCapacity, context.memory);
             archerData.memory.formation = af.name;
             af.archers.push(archerData.name);
-            SpawnUtils.schedule(spawn, archerData, context.memory, tactical);
+            SpawnUtils.schedule(spawn, archerData, context.memory, 1 + 1 / (af.archers.length + 1), tactical);
         }
     },
     numSoldiers: function (formation) {
@@ -935,7 +948,7 @@ var ExtractorFormationOps = {
         var target = context.game.getObjectById(ef.targetId);
         var targetType = ef.targetType;
         if (activeTransporters.length > 0) {
-            target = activeTransporters[0];
+            target = context.game.creeps[activeTransporters[0]];
             targetType = "Creep";
         }
         // process extractors
@@ -949,7 +962,7 @@ var ExtractorFormationOps = {
                 if (cr.carry.energy == cr.carryCapacity &&
                     activeTransporters.length == ef.transporterCreeps.length // check if already scheduled
                 )
-                    this.addTransporter(ef, cr.room, context.memory);
+                    ExtractorFormationOps.addTransporter(ef, cr.room, context, false);
             }
             if (crs === "give" && CreepUtils.give(cr, target, targetType))
                 crs = "take";
@@ -970,7 +983,7 @@ var ExtractorFormationOps = {
                     sourceType = ef.sourceType;
                 }
                 else {
-                    source = activeExtractors[ef.nextExtractor % activeExtractors.length];
+                    source = context.game.creeps[activeExtractors[ef.nextExtractor % activeExtractors.length]];
                     sourceType = "Creep";
                 }
             }
@@ -995,8 +1008,8 @@ var ExtractorFormationOps = {
                 // cycle the first transporter across extractors
                 if (i == 0 && activeExtractors.length > 0) {
                     ef.nextExtractor = (ef.nextExtractor + 1) % activeExtractors.length;
-                    // keep taking till you're full
-                    if (cr.carry.energy < cr.carryCapacity)
+                    // keep taking till you're full, or if you've completed one cycle
+                    if (cr.carry.energy < cr.carryCapacity && ef.nextExtractor != 0)
                         crs = "take";
                 }
             }
@@ -1012,7 +1025,7 @@ var ExtractorFormationOps = {
         var activeExtr = ArrayUtils.filter(ef.extractorCreeps, isFunctional);
         var numExtr = activeExtr.length; // number of active extractors
         var getWorkAmount = function (crn) {
-            return context.game.creeps[crn].getActiveBodyParts(WORK);
+            return context.game.creeps[crn].getActiveBodyparts(WORK);
         };
         var numWork = ArrayUtils.sum(// total work parts
         ArrayUtils.map(activeExtr, getWorkAmount));
@@ -1034,28 +1047,35 @@ var ExtractorFormationOps = {
         }
         if (freeCells <= numExtr)
             return;
-        this.addExtractor(ef, context.memory, spawn, tactical);
+        ExtractorFormationOps.addExtractor(ef, context, spawn, tactical);
     },
     numSoldiers: function (f) {
         return 0;
     },
-    addTransporter: function (ef, room, memory, tactical) {
+    addTransporter: function (ef, room, context, tactical) {
         var allSpawns = room.find(FIND_MY_SPAWNS);
         if (allSpawns.length == 0)
             return;
         var spawn = allSpawns[0];
         var energy = spawn.energyCapacity;
-        var buildData = CreepUtils.createTransporterData(energy, memory);
+        var buildData = CreepUtils.createTransporterData(energy, context.memory);
         buildData.memory.formation = ef.name;
-        SpawnUtils.schedule(spawn, buildData, memory, tactical);
+        var pathLen = ExtractorFormationOps.pathLen(ef, context.game);
+        SpawnUtils.schedule(spawn, buildData, context.memory, 1 + 1000 / pathLen, tactical);
         ef.transporterCreeps.push(buildData.name);
     },
-    addExtractor: function (ef, memory, spawn, tactical) {
+    addExtractor: function (ef, context, spawn, tactical) {
         var energy = spawn.energyCapacity;
-        var buildData = CreepUtils.createHarvestorData(energy, memory);
+        var buildData = CreepUtils.createHarvestorData(energy, context.memory);
         buildData.memory.formation = ef.name;
-        SpawnUtils.schedule(spawn, buildData, memory, tactical);
+        var pathLen = ExtractorFormationOps.pathLen(ef, context.game);
+        SpawnUtils.schedule(spawn, buildData, context.memory, 1 + 1000 / pathLen, tactical);
         ef.extractorCreeps.push(buildData.name);
+    },
+    pathLen: function (ef, game) {
+        var sourcePos = game.getObjectById(ef.sourceId).pos;
+        var targetPos = game.getObjectById(ef.targetId).pos;
+        return sourcePos.getRangeTo(targetPos.x, targetPos.y);
     }
 };
 //==============================================================================
@@ -1151,7 +1171,7 @@ var ScanEndPointsTaskOps = {
                     creepStatus: {},
                     nextExtractor: 0
                 };
-                ExtractorFormationOps.addExtractor(formation, context.memory, closestSpawn, false);
+                ExtractorFormationOps.addExtractor(formation, context, closestSpawn, false);
                 //create a supplyChain from source to spawn
                 context.memory.centralMemory.formations[formation.name] = formation;
             }
@@ -1165,7 +1185,7 @@ var ExtendFormationTaskOps = {
     schedule: function (task, context) {
         for (var spawnName in context.game.spawns) {
             var spawn = context.game.spawns[spawnName];
-            var strategyQueue = new Queue(spawn.memory.strategyQueue);
+            var strategyQueue = SpawnUtils.getBTree(spawn.memory.strategyQueue);
             for (var formationName in context.memory.centralMemory.formations) {
                 if (strategyQueue.length() > 0)
                     break;
